@@ -1,0 +1,469 @@
+[
+  {
+    "platform": "wechat_oa",
+    "action": "article_search",
+    "action_label": "文章搜索",
+    "required_params": [
+      "keyword"
+    ],
+    "mode": "sync",
+    "cost_credits": 400,
+    "price_cny": 0.037258,
+    "optional_params": [
+      "category",
+      "sub_type"
+    ],
+    "param_meanings": {
+      "keyword": {
+        "description": "article_search 搜文章，account_search 搜公众号，mini_program_search 搜小程序，search_suggestions 取联想词，wechat_index 取关键词指数；这些都不是个人微信聊天搜索。"
+      },
+      "category": {
+        "description": "仅 article_search 的文章栏目：ALL 全部、LATEST 最新、HOT 热门、FOLLOWED 已关注、RECENT_READ 最近读过；后两项与用户状态相关，当前没有传入你的微信登录态，不保证可用，也不会读取你的个人关注/阅读记录。"
+      },
+      "sub_type": {
+        "description": "category 的兼容字段，同样使用五个文章栏目值，传入会转大写；两者同时出现时 category 优先。"
+      }
+    },
+    "returns_list": true,
+    "available": true,
+    "default_limit": 20,
+    "max_limit": 400,
+    "response_fields": [
+      "id",
+      "title",
+      "summary",
+      "url",
+      "cover_image_url",
+      "account_name",
+      "posted_at",
+      "relative_time",
+      "kind",
+      "platform"
+    ],
+    "platform_field_meanings": {
+      "account_name": "公众号名称。",
+      "cover_image_url": "封面图。",
+      "summary": "摘要。",
+      "relative_time": "相对时间描述（如「3天前」）。",
+      "kind": "条目类别。"
+    }
+  },
+  {
+    "platform": "wechat_oa",
+    "action": "account_search",
+    "action_label": "公众号搜索",
+    "required_params": [
+      "keyword"
+    ],
+    "mode": "sync",
+    "cost_credits": 400,
+    "price_cny": 0.037258,
+    "param_meanings": {
+      "keyword": {
+        "description": "article_search 搜文章，account_search 搜公众号，mini_program_search 搜小程序，search_suggestions 取联想词，wechat_index 取关键词指数；这些都不是个人微信聊天搜索。"
+      }
+    },
+    "returns_list": true,
+    "available": true,
+    "default_limit": 20,
+    "max_limit": 400,
+    "response_fields": [
+      "account_id",
+      "ghid",
+      "name",
+      "description",
+      "alias",
+      "avatar_url",
+      "verify_flag",
+      "biz",
+      "platform"
+    ],
+    "platform_field_meanings": {
+      "account_id": "公众号 ID。",
+      "ghid": "同 account_ghid。",
+      "biz": "公众号的 __biz 参数，文章链接里带的标识。",
+      "alias": "公众号自定义的微信号。",
+      "verify_flag": "认证标记。"
+    }
+  },
+  {
+    "platform": "wechat_oa",
+    "action": "mini_program_search",
+    "action_label": "小程序搜索",
+    "required_params": [
+      "keyword"
+    ],
+    "mode": "sync",
+    "cost_credits": 400,
+    "price_cny": 0.037258,
+    "param_meanings": {
+      "keyword": {
+        "description": "article_search 搜文章，account_search 搜公众号，mini_program_search 搜小程序，search_suggestions 取联想词，wechat_index 取关键词指数；这些都不是个人微信聊天搜索。"
+      }
+    },
+    "returns_list": true,
+    "available": true,
+    "supply_note": "Temporarily unavailable: we are restoring this capability. Until then calls are refused with 503 `unavailable` (error.reason `temporarily_unavailable`) and a Retry-After header, and are not charged.",
+    "default_limit": 20,
+    "max_limit": 400,
+    "response_fields": [
+      "id",
+      "name",
+      "description",
+      "icon_url",
+      "username",
+      "is_minigame",
+      "platform"
+    ],
+    "platform_field_meanings": {
+      "icon_url": "公众号头像。",
+      "is_minigame": "是否为小游戏关联账号。"
+    }
+  },
+  {
+    "platform": "wechat_oa",
+    "action": "search_suggestions",
+    "action_label": "搜索联想",
+    "required_params": [
+      "keyword"
+    ],
+    "mode": "sync",
+    "cost_credits": 400,
+    "price_cny": 0.037258,
+    "param_meanings": {
+      "keyword": {
+        "description": "article_search 搜文章，account_search 搜公众号，mini_program_search 搜小程序，search_suggestions 取联想词，wechat_index 取关键词指数；这些都不是个人微信聊天搜索。"
+      }
+    },
+    "returns_list": false,
+    "available": true,
+    "supply_note": "Temporarily unavailable: we are restoring this capability. Until then calls are refused with 503 `unavailable` (error.reason `temporarily_unavailable`) and a Retry-After header, and are not charged.",
+    "response_fields": [
+      "suggestions",
+      "count",
+      "platform"
+    ],
+    "platform_field_meanings": {
+      "count": "数量。",
+      "suggestions": "相关推荐词。"
+    }
+  },
+  {
+    "platform": "wechat_oa",
+    "action": "account_profile",
+    "action_label": "公众号资料",
+    "required_params": [
+      "account"
+    ],
+    "mode": "sync",
+    "cost_credits": 400,
+    "price_cny": 0.037258,
+    "param_meanings": {
+      "account": {
+        "description": "公众号标识，可用微信号、gh_ 开头的原始 ID，或可解析公众号的账号/文章 URL；不是个人微信号。account_principal 取主体资料，account_articles 取历史文章列表，account_today_articles 取当日文章。"
+      }
+    },
+    "returns_list": false,
+    "available": true,
+    "response_fields": [
+      "account_id",
+      "name",
+      "account_type",
+      "description",
+      "avatar_url",
+      "biz",
+      "platform"
+    ],
+    "platform_field_meanings": {
+      "account_id": "公众号 ID。",
+      "biz": "公众号的 __biz 参数，文章链接里带的标识。",
+      "account_type": "账号类型（订阅号 / 服务号）。"
+    }
+  },
+  {
+    "platform": "wechat_oa",
+    "action": "account_principal",
+    "action_label": "公众号主体信息",
+    "required_params": [
+      "account"
+    ],
+    "mode": "sync",
+    "cost_credits": 400,
+    "price_cny": 0.037258,
+    "param_meanings": {
+      "account": {
+        "description": "公众号标识，可用微信号、gh_ 开头的原始 ID，或可解析公众号的账号/文章 URL；不是个人微信号。account_principal 取主体资料，account_articles 取历史文章列表，account_today_articles 取当日文章。"
+      }
+    },
+    "returns_list": false,
+    "available": true,
+    "supply_note": "Temporarily unavailable: we are restoring this capability. Until then calls are refused with 503 `unavailable` (error.reason `temporarily_unavailable`) and a Retry-After header, and are not charged.",
+    "response_fields": [
+      "account_id",
+      "ghid",
+      "name",
+      "description",
+      "company_name",
+      "owner_name",
+      "customer_type",
+      "verify_status",
+      "verify_type",
+      "verified_at",
+      "registered_country",
+      "registered_at",
+      "is_overseas",
+      "last_login_province",
+      "authorized_agents",
+      "platform"
+    ],
+    "platform_field_meanings": {
+      "account_id": "公众号 ID。",
+      "ghid": "同 account_ghid。",
+      "customer_type": "主体类型（个人 / 企业 / 政府 / 媒体）。",
+      "company_name": "认证主体的公司名称。",
+      "owner_name": "运营者名称。",
+      "verify_status": "认证状态。",
+      "verify_type": "认证类型。",
+      "verified_at": "认证时间。",
+      "authorized_agents": "授权代理机构。",
+      "registered_at": "注册时间。",
+      "registered_country": "注册国家。",
+      "is_overseas": "是否为境外主体。",
+      "last_login_province": "最近登录省份。"
+    }
+  },
+  {
+    "platform": "wechat_oa",
+    "action": "account_articles",
+    "action_label": "公众号历史文章",
+    "required_params": [
+      "account"
+    ],
+    "mode": "sync",
+    "cost_credits": 400,
+    "price_cny": 0.037258,
+    "param_meanings": {
+      "account": {
+        "description": "公众号标识，可用微信号、gh_ 开头的原始 ID，或可解析公众号的账号/文章 URL；不是个人微信号。account_principal 取主体资料，account_articles 取历史文章列表，account_today_articles 取当日文章。"
+      }
+    },
+    "returns_list": true,
+    "available": true,
+    "default_limit": 8,
+    "max_limit": 160,
+    "response_fields": [
+      "id",
+      "title",
+      "url",
+      "cover_image_url",
+      "posted_at",
+      "position",
+      "is_original",
+      "is_deleted",
+      "account_name",
+      "account_id",
+      "account_ghid",
+      "platform"
+    ],
+    "platform_field_meanings": {
+      "account_id": "公众号 ID。",
+      "account_name": "公众号名称。",
+      "account_ghid": "公众号的 gh_ 开头原始 ID，微信体系内的唯一标识。",
+      "is_original": "是否为原创声明文章。",
+      "is_deleted": "内容是否已被删除。",
+      "cover_image_url": "封面图。",
+      "position": "排名位置。"
+    }
+  },
+  {
+    "platform": "wechat_oa",
+    "action": "account_today_articles",
+    "action_label": "公众号当日文章",
+    "required_params": [
+      "account"
+    ],
+    "mode": "sync",
+    "cost_credits": 400,
+    "price_cny": 0.037258,
+    "param_meanings": {
+      "account": {
+        "description": "公众号标识，可用微信号、gh_ 开头的原始 ID，或可解析公众号的账号/文章 URL；不是个人微信号。account_principal 取主体资料，account_articles 取历史文章列表，account_today_articles 取当日文章。"
+      }
+    },
+    "returns_list": true,
+    "available": true,
+    "supply_note": "Temporarily unavailable: we are restoring this capability. Until then calls are refused with 503 `unavailable` (error.reason `temporarily_unavailable`) and a Retry-After header, and are not charged.",
+    "response_fields": [
+      "id",
+      "title",
+      "url",
+      "cover_image_url",
+      "posted_at",
+      "position",
+      "is_original",
+      "is_deleted",
+      "account_name",
+      "account_id",
+      "account_ghid",
+      "platform"
+    ],
+    "platform_field_meanings": {
+      "account_id": "公众号 ID。",
+      "account_name": "公众号名称。",
+      "account_ghid": "公众号的 gh_ 开头原始 ID，微信体系内的唯一标识。",
+      "is_original": "是否为原创声明文章。",
+      "is_deleted": "内容是否已被删除。",
+      "cover_image_url": "封面图。",
+      "position": "排名位置。"
+    }
+  },
+  {
+    "platform": "wechat_oa",
+    "action": "article_comments",
+    "action_label": "文章评论",
+    "required_params": [
+      "url"
+    ],
+    "mode": "sync",
+    "cost_credits": 400,
+    "price_cny": 0.037258,
+    "param_meanings": {
+      "url": {
+        "description": "article_comments / comment_replies / article_metrics 使用 mp.weixin.qq.com 的具体文章链接；账号类接口仅把它作为公众号解析的最低优先级输入。"
+      }
+    },
+    "returns_list": true,
+    "available": true,
+    "default_limit": 13,
+    "max_limit": 260,
+    "response_fields": [
+      "id",
+      "text",
+      "author_name",
+      "author_avatar_url",
+      "like_count",
+      "posted_at",
+      "is_top",
+      "reply_count",
+      "country",
+      "province",
+      "platform"
+    ],
+    "platform_field_meanings": {
+      "province": "所在省份。",
+      "is_top": "是否为置顶内容。",
+      "author_avatar_url": "作者头像。"
+    }
+  },
+  {
+    "platform": "wechat_oa",
+    "action": "comment_replies",
+    "action_label": "评论回复",
+    "required_params": [
+      "url",
+      "comment_id"
+    ],
+    "mode": "sync",
+    "cost_credits": 400,
+    "price_cny": 0.037258,
+    "optional_params": [
+      "content_id"
+    ],
+    "param_meanings": {
+      "url": {
+        "description": "article_comments / comment_replies / article_metrics 使用 mp.weixin.qq.com 的具体文章链接；账号类接口仅把它作为公众号解析的最低优先级输入。"
+      },
+      "comment_id": {
+        "description": "comment_replies 的目标评论 ID，从同一文章 article_comments 的评论结果获取；必须与 url 对应，不是文章 ID。"
+      },
+      "content_id": {
+        "description": "comment_id 的兼容字段，低于 comment_id。"
+      }
+    },
+    "returns_list": true,
+    "available": true,
+    "supply_note": "Temporarily unavailable: we are restoring this capability. Until then calls are refused with 503 `unavailable` (error.reason `temporarily_unavailable`) and a Retry-After header, and are not charged.",
+    "response_fields": [
+      "id",
+      "text",
+      "author_name",
+      "author_avatar_url",
+      "like_count",
+      "posted_at",
+      "country",
+      "province",
+      "city",
+      "platform"
+    ],
+    "platform_field_meanings": {
+      "province": "所在省份。",
+      "author_avatar_url": "作者头像。"
+    }
+  },
+  {
+    "platform": "wechat_oa",
+    "action": "article_metrics",
+    "action_label": "文章传播数据",
+    "required_params": [
+      "url"
+    ],
+    "mode": "sync",
+    "cost_credits": 400,
+    "price_cny": 0.037258,
+    "param_meanings": {
+      "url": {
+        "description": "article_comments / comment_replies / article_metrics 使用 mp.weixin.qq.com 的具体文章链接；账号类接口仅把它作为公众号解析的最低优先级输入。"
+      }
+    },
+    "returns_list": false,
+    "available": true,
+    "supply_note": "Temporarily unavailable: we are restoring this capability. Until then calls are refused with 503 `unavailable` (error.reason `temporarily_unavailable`) and a Retry-After header, and are not charged.",
+    "response_fields": [
+      "read_count",
+      "like_count",
+      "watching_count",
+      "share_count",
+      "collect_count",
+      "comment_count",
+      "platform"
+    ],
+    "platform_field_meanings": {
+      "watching_count": "在看数。**公众号特有的互动指标，区别于点赞。**",
+      "read_count": "阅读数。"
+    }
+  },
+  {
+    "platform": "wechat_oa",
+    "action": "wechat_index",
+    "action_label": "微信指数",
+    "required_params": [
+      "keyword"
+    ],
+    "mode": "sync",
+    "cost_credits": 400,
+    "price_cny": 0.037258,
+    "param_meanings": {
+      "keyword": {
+        "description": "article_search 搜文章，account_search 搜公众号，mini_program_search 搜小程序，search_suggestions 取联想词，wechat_index 取关键词指数；这些都不是个人微信聊天搜索。"
+      }
+    },
+    "returns_list": false,
+    "available": true,
+    "supply_note": "Temporarily unavailable: we are restoring this capability. Until then calls are refused with 503 `unavailable` (error.reason `temporarily_unavailable`) and a Retry-After header, and are not charged.",
+    "response_fields": [
+      "keyword",
+      "latest_index",
+      "latest_date",
+      "data_points",
+      "trend",
+      "platform"
+    ],
+    "platform_field_meanings": {
+      "keyword": "查询的关键词。",
+      "latest_index": "最新一期的指数值。",
+      "latest_date": "最新一期的日期。",
+      "trend": "指数随时间的变化序列。",
+      "data_points": "趋势数据点数量。"
+    }
+  }
+]

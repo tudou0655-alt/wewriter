@@ -1,0 +1,7 @@
+Pillow>=11,<13
+beautifulsoup4==4.14.3
+qrcode==8.2
+playwright==1.63.0
+pystray==0.19.5
+tzdata>=2025.2
+pyinstaller>=6.16,<7

@@ -204,7 +204,7 @@ class App:
                                font=("Microsoft YaHei UI", 10, "bold"), command=lambda p=title: self.show(p))
             button.pack(fill="x", padx=10, pady=3)
             self.nav[title] = button
-        tk.Label(sidebar, text="本地数据 · 云端智能\nv0.10.1  试用版", justify="left", bg=SIDEBAR,
+        tk.Label(sidebar, text="本地数据 · 云端智能\nv0.10.2  试用版", justify="left", bg=SIDEBAR,
                  fg="#AEB4D3", font=("Microsoft YaHei UI", 9)).pack(
                      side="bottom", anchor="w", padx=18 if self.compact else 25, pady=25)
         right = ttk.Frame(self.root)
@@ -431,7 +431,9 @@ class App:
                 from .weread import WeReadSource
                 source = WeReadSource(self.vault.get('weread'), self.db,
                     state_saver=lambda value: self.vault.set_many({'weread': value}),
-                    profile_dir=self.data_dir / 'weread-edge-profile')
+                    profile_dir=self.data_dir / 'weread-edge-profile',
+                    skill_key=(self.vault.get('weread_skill')
+                               if self.vault.has('weread_skill') else None))
                 try:
                     return source.test(account['identifier'])
                 finally:
@@ -451,7 +453,9 @@ class App:
         def work():
             source = WeReadSource(self.vault.get('weread'), self.db,
                 state_saver=lambda value: self.vault.set_many({'weread': value}),
-                profile_dir=self.data_dir / 'weread-edge-profile')
+                profile_dir=self.data_dir / 'weread-edge-profile',
+                skill_key=(self.vault.get('weread_skill')
+                           if self.vault.has('weread_skill') else None))
             try:
                 return sync_books(self.db, source.shelf())
             finally:
@@ -469,7 +473,7 @@ class App:
             config = self.db.config()
             config['source_provider'] = 'weread'
             self.db.save_config(config)
-            return f'微信读书登录及文章接口验证成功，发现 {count} 个书架公众号；请同步书架公众号'
+            return f'微信读书登录成功，发现 {count} 个书架公众号；请同步书架公众号'
         self.start_worker(work, "已打开 Edge，请在浏览器中扫码登录；验证成功后窗口会自动关闭…")
 
     def text_window(self, title, text, images=()):
@@ -557,7 +561,9 @@ class App:
                 self.engine.cancel.clear()
                 source = WeReadSource(self.vault.get('weread'), self.db, self.engine.cancel,
                     state_saver=lambda value: self.vault.set_many({'weread': value}),
-                    profile_dir=self.data_dir / 'weread-edge-profile')
+                    profile_dir=self.data_dir / 'weread-edge-profile',
+                    skill_key=(self.vault.get('weread_skill')
+                               if self.vault.has('weread_skill') else None))
                 saved = 0
                 try:
                     for article_id in ids:
@@ -855,25 +861,27 @@ class App:
             return var
 
         frame = section("接口与模型")
-        for row, (provider, label) in enumerate((("everyinfra", "EveryInfra 评论"), ("openai", "OpenAI"), ("deepseek", "DeepSeek"))):
+        for row, (provider, label) in enumerate((("weread_skill", "微信读书 Skill"),
+                ("everyinfra", "EveryInfra 评论"), ("openai", "OpenAI"),
+                ("deepseek", "DeepSeek"))):
             saved = "已保存" if self.vault.has(provider) else "未配置"
             keys[provider] = field(frame, row, f"{label} Key · {saved}", provider + "_key", "", secret=True)
-        for row, provider in ((3, "openai"), (5, "deepseek")):
+        for row, provider in ((4, "openai"), (6, "deepseek")):
             field(frame, row, provider + " 接口地址", provider + "_url", config["providers"][provider]["base_url"])
             field(frame, row + 1, provider + " 模型 ID", provider + "_model", config["providers"][provider]["model"])
-        field(frame, 7, "逐篇摘要使用", "summary_provider", config["summary_provider"], ["openai", "deepseek"])
-        field(frame, 8, "综合写作使用", "writer_provider", config["writer_provider"], ["openai", "deepseek"])
-        ttk.Label(frame, text="Key 留空保留原密钥。OpenAI 使用 Responses API；DeepSeek 使用官方兼容接口。", style="Sub.TLabel").grid(row=9, column=0, columnspan=2, sticky="w", pady=7)
-        ttk.Label(frame, text="文章采集来源：微信读书", style="Sub.TLabel").grid(row=10, column=0, columnspan=2, sticky="w", pady=5)
-        ttk.Label(frame, text="weread：微信读书负责文章和阅读量；EveryInfra Key 用于评论。", style="Sub.TLabel").grid(row=11, column=0, columnspan=2, sticky="w", pady=5)
-        field(frame, 12, 'OpenAI 联网研究接口', 'search_url', config['search_url'])
-        ttk.Label(frame, text='联网研究使用 OpenAI web_search；EveryInfra 获取评论，由摘要模型分析。搜索、评论及模型调用可能计费。', wraplength=740, style='Sub.TLabel').grid(row=13, column=0, columnspan=2, sticky='w', pady=5)
-        ttk.Label(frame, text='正文不足 100 字但含原图时，会均匀选择最多 8 张图片交给 OpenAI 识别；识别结果会缓存。', wraplength=740, style='Sub.TLabel').grid(row=14, column=0, columnspan=2, sticky='w', pady=5)
+        field(frame, 8, "逐篇摘要使用", "summary_provider", config["summary_provider"], ["openai", "deepseek"])
+        field(frame, 9, "综合写作使用", "writer_provider", config["writer_provider"], ["openai", "deepseek"])
+        ttk.Label(frame, text="Key 留空保留原密钥。OpenAI 使用 Responses API；DeepSeek 使用官方兼容接口。", style="Sub.TLabel").grid(row=10, column=0, columnspan=2, sticky="w", pady=7)
+        ttk.Label(frame, text="文章采集来源：微信读书", style="Sub.TLabel").grid(row=11, column=0, columnspan=2, sticky="w", pady=5)
+        ttk.Label(frame, text="微信读书 Skill Key 用于稳定书架鉴权及文章列表降级；EveryInfra Key 仅用于评论。", wraplength=740, style="Sub.TLabel").grid(row=12, column=0, columnspan=2, sticky="w", pady=5)
+        field(frame, 13, 'OpenAI 联网研究接口', 'search_url', config['search_url'])
+        ttk.Label(frame, text='联网研究使用 OpenAI web_search；EveryInfra 获取评论，由摘要模型分析。搜索、评论及模型调用可能计费。', wraplength=740, style='Sub.TLabel').grid(row=14, column=0, columnspan=2, sticky='w', pady=5)
+        ttk.Label(frame, text='正文不足 100 字但含原图时，会均匀选择最多 8 张图片交给 OpenAI 识别；识别结果会缓存。', wraplength=740, style='Sub.TLabel').grid(row=15, column=0, columnspan=2, sticky='w', pady=5)
 
-        field(frame, 14, 'OpenAI 联网模型 ID', 'search_model', config['search_model'])
-        field(frame, 15, '每篇最多获取评论数', 'comment_limit', config['comment_limit'])
+        field(frame, 16, 'OpenAI 联网模型 ID', 'search_model', config['search_model'])
+        field(frame, 17, '每篇最多获取评论数', 'comment_limit', config['comment_limit'])
         comments_enabled = tk.BooleanVar(value=config['comments_enabled'])
-        ttk.Checkbutton(frame, text='启用 EveryInfra 评论分析', variable=comments_enabled).grid(row=16, column=0, columnspan=2, sticky='w')
+        ttk.Checkbutton(frame, text='启用 EveryInfra 评论分析', variable=comments_enabled).grid(row=18, column=0, columnspan=2, sticky='w')
 
         frame = section("采集与逐篇写作")
         for key in ('article_limit', 'min_sources', 'topic'):
@@ -968,7 +976,7 @@ class App:
             self.vault.delete(provider)
             keys[provider].set("")
             self.status.set(provider + " 密钥已清除")
-        for provider in ("everyinfra", "openai", "deepseek"):
+        for provider in ("weread_skill", "everyinfra", "openai", "deepseek"):
             self.button(row, "清除 " + provider + " Key", lambda p=provider: clear_key(p))
 
     def backup(self):

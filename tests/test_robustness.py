@@ -184,7 +184,7 @@ if __name__ == '__main__':
 
 
 class SelectionFilterTest(unittest.TestCase):
-    def test_promotion_titles_are_skipped_at_collection(self):
+    def test_promotion_titles_are_not_filtered_by_title(self):
         class PromoSource(test_core.FakeSource):
             def articles(self, account, limit):
                 when = (test_core.datetime.now(test_core.timezone.utc) - test_core.timedelta(hours=1)).isoformat()
@@ -198,7 +198,7 @@ class SelectionFilterTest(unittest.TestCase):
             job = f.db.rows("SELECT selected FROM jobs WHERE run_key='promo:test'")[0]
             titles = [f.db.rows('SELECT title FROM articles WHERE id=?', (i,))[0]['title']
                       for i in json.loads(job['selected'])]
-            self.assertEqual(titles, ['政策解读'])
+            self.assertEqual(titles, ['双11爆品清单', '政策解读'])
         finally:
             f.tearDown()
 

@@ -72,6 +72,9 @@ class Database:
         for table in ('articles', 'drafts'):
             if 'cleared' not in {r[1] for r in db.execute('PRAGMA table_info(' + table + ')')}:
                 db.execute('ALTER TABLE ' + table + ' ADD COLUMN cleared INTEGER NOT NULL DEFAULT 0')
+        if 'error_code' not in {r[1] for r in db.execute('PRAGMA table_info(jobs)')}:
+            # Structured failure reason (see engine.ErrorCode); '' = no error.
+            db.execute("ALTER TABLE jobs ADD COLUMN error_code TEXT NOT NULL DEFAULT ''")
 
     def clear_records(self, kind, ids=None):
         """Purge content, retaining minimal identity to prevent accidental regeneration."""
@@ -232,7 +235,7 @@ class Database:
             return dict(db.execute("SELECT * FROM jobs WHERE run_key=?", (run_key,)).fetchone())
 
     def update_job(self, job_id, **fields):
-        allowed = {"status", "stage", "selected", "warnings", "message"}
+        allowed = {"status", "stage", "selected", "warnings", "message", "error_code"}
         if not fields or not set(fields).issubset(allowed):
             raise ValueError("无效任务字段")
         fields["updated_at"] = stamp()

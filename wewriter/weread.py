@@ -20,10 +20,60 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from .api import ApiError, Cancelled, NoRedirect, wechat_url, parse_date
+from .logs import logger
 
 BASE = "https://weread.qq.com"
 IMAGE_LIMIT = 20
 IMAGE_BYTES_LIMIT = 8 * 1024 * 1024
+
+
+def kill_process_tree(pid):
+    """Best-effort removal of an Edge launcher and every child it spawned."""
+    if os.name != 'nt' or not isinstance(pid, int) or pid <= 0:
+        return
+    try:
+        subprocess.run(['taskkill', '/PID', str(pid), '/T', '/F'],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
+                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except Exception:
+        pass
+
+
+def remove_profile_dir(path, attempts=10, delay=0.5):
+    """Delete a disposable Edge profile, waiting briefly for file locks to clear."""
+    path = Path(path)
+    for attempt in range(attempts):
+        if not path.exists():
+            return True
+        shutil.rmtree(path, ignore_errors=True)
+        if not path.exists():
+            return True
+        if attempt + 1 < attempts:
+            time.sleep(delay)
+    return not path.exists()
+
+
+def cleanup_stale_profiles(profile_root, older_than=3600):
+    """Remove disposable profiles left behind by crashes or older versions.
+
+    Only call this while no collection task is running (e.g. at app start; the
+    single-instance lock guarantees no other WeWriter process owns them).
+    """
+    profile_root = Path(profile_root)
+    parent = profile_root.parent
+    if not parent.is_dir():
+        return 0
+    removed = 0
+    now = time.time()
+    for item in parent.glob(profile_root.name + '-*'):
+        try:
+            if not item.is_dir() or now - item.stat().st_mtime < older_than:
+                continue
+        except OSError:
+            continue
+        if remove_profile_dir(item, attempts=2, delay=0.2):
+            removed += 1
+    return removed
 
 
 def article_image_candidates(node):
@@ -95,6 +145,7 @@ class WeReadBrowser:
         self.headless = headless
         self.state = state
         self.playwright = self.browser = self.context = self.process = None
+        self.worker = None
 
     @staticmethod
     def edge_path():
@@ -185,7 +236,15 @@ class WeReadBrowser:
             '。请关闭所有 Edge 窗口后重试；若仍失败，请检查安全软件是否拦截 Edge') from last_error
 
     def close(self):
+        # Playwright's Browser.close() only *disconnects* a connect_over_cdp
+        # session; Edge itself keeps running and keeps the profile locked.
+        # Ask Edge to exit through CDP first, then make sure the whole process
+        # tree is gone so the disposable profile directory can be removed.
         if self.browser:
+            try:
+                self.browser.new_browser_cdp_session().send('Browser.close')
+            except Exception:
+                pass
             try:
                 self.browser.close()
             except Exception:
@@ -195,51 +254,75 @@ class WeReadBrowser:
                 self.playwright.stop()
             except Exception:
                 pass
-        if self.process and self.process.poll() is None:
+        process = self.process
+        if process is not None:
             try:
-                self.process.terminate()
-                self.process.wait(timeout=5)
+                process.wait(timeout=5)
             except Exception:
-                self.process.kill()
+                pass
+            if process.poll() is None:
+                try:
+                    process.terminate()
+                    process.wait(timeout=5)
+                except Exception:
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
+            kill_process_tree(getattr(process, 'pid', None))
         self.context = self.browser = self.playwright = self.process = None
+        self.worker = None
+
+    def worker_page(self):
+        """One long-lived WeRead tab per session for same-origin fetch() calls.
+
+        Loading the WeRead homepage for every article was slow and made
+        verification pages more likely; the page is reloaded only when it was
+        closed, crashed or navigated away."""
+        context = self.open()
+        page = self.worker
+        try:
+            usable = page is not None and not page.is_closed() and str(page.url).startswith(BASE)
+        except Exception:
+            usable = False
+        if not usable:
+            page = context.new_page()
+            page.goto(BASE + '/', wait_until='domcontentloaded', timeout=60000)
+            self.worker = page
+        return page
+
+    def reload_worker(self):
+        """Reload WeRead so its own JavaScript issues fresh request credentials."""
+        page = self.worker_page()
+        page.goto(BASE + '/', wait_until='domcontentloaded', timeout=60000)
 
     def cookie_state(self):
         return browser_cookie_state(self.open().cookies([BASE]))
 
     def shelf(self):
-        context = self.open()
-        page = context.new_page()
-        try:
-            page.goto(BASE + '/', wait_until='domcontentloaded', timeout=60000)
-            result = page.evaluate("""async () => {
-                const response = await fetch('/web/shelf/sync?userVid=&synckey=0&lectureSynckey=0',
-                    {credentials: 'include'});
-                return await response.json();
-            }""")
-            WeReadSession.check(result)
-            books = result.get('books')
-            if not isinstance(books, list):
-                raise ApiError('Edge 登录验证未通过：书架接口没有返回 books 字段')
-            return [book for book in books if isinstance(book, dict)
-                    and str(book.get('bookId', '')).startswith('MP_WXS_')]
-        finally:
-            page.close()
+        result = self.worker_page().evaluate("""async () => {
+            const response = await fetch('/web/shelf/sync?userVid=&synckey=0&lectureSynckey=0',
+                {credentials: 'include'});
+            return await response.json();
+        }""")
+        WeReadSession.check(result)
+        books = result.get('books')
+        if not isinstance(books, list):
+            raise ApiError('Edge 登录验证未通过：书架接口没有返回 books 字段')
+        return [book for book in books if isinstance(book, dict)
+                and str(book.get('bookId', '')).startswith('MP_WXS_')]
 
     def content(self, review_id):
-        context = self.open()
-        page = context.new_page()
-        try:
-            page.goto(BASE + '/', wait_until='domcontentloaded', timeout=60000)
-            result = page.evaluate("""async (reviewId) => {
-                const response = await fetch('/web/mp/content?' + new URLSearchParams({reviewId}),
-                    {credentials: 'include'});
-                return {status: response.status, body: await response.text()};
-            }""", review_id)
-            if not isinstance(result, dict) or result.get('status') != 200:
-                raise ApiError('Edge 读取公众号正文失败，请重新扫码登录', True, kind='weread_auth')
-            return str(result.get('body') or '')
-        finally:
-            page.close()
+        result = self.worker_page().evaluate("""async (reviewId) => {
+            const response = await fetch('/web/mp/content?' + new URLSearchParams({reviewId}),
+                {credentials: 'include'});
+            return {status: response.status, body: await response.text()};
+        }""", review_id)
+        if not isinstance(result, dict) or result.get('status') != 200:
+            # Usually expired per-request credentials; _browser_call reloads
+            # WeRead once before treating it as a login failure.
+            raise ApiError('Edge 读取公众号正文失败，请重新扫码登录', True, kind='weread_ticket')
+        return str(result.get('body') or '')
 
     def public_content(self, url):
         """Open a trusted public WeChat URL when WeRead returns a verification page."""
@@ -301,7 +384,7 @@ def browser_login(profile_dir, cancel=None):
     # login therefore gets an isolated disposable profile instead of reusing
     # the previous directory.
     if profile_root.exists():
-        shutil.rmtree(profile_root, ignore_errors=True)
+        remove_profile_dir(profile_root, attempts=3)
     login_dir = Path(tempfile.mkdtemp(prefix=profile_root.name + '-', dir=profile_root.parent))
     browser = WeReadBrowser(login_dir, cancel, headless=False)
     context = browser.open()
@@ -358,7 +441,7 @@ def browser_login(profile_dir, cancel=None):
         raise ApiError('登录等待超过 5 分钟，请重新点击 Edge 登录', True, kind='weread_auth')
     finally:
         browser.close()
-        shutil.rmtree(login_dir, ignore_errors=True)
+        remove_profile_dir(login_dir)
 
 
 class WeReadSession:
@@ -440,8 +523,10 @@ class WeReadSession:
                 '-2012': '登录会话已过期或冲突，请在公众号管理中重新扫码登录',
                 '-2041': '公众号文章接口临时凭据已失效；请重启软件后重试，仍失败时请在公众号管理中使用 Edge 重新扫码登录',
             }
+            kind = ('weread_ticket' if str(code) == '-2041' else
+                    'weread_auth' if str(code) in messages else 'weread')
             raise ApiError(f"微信读书业务码 {code}：{messages.get(str(code), '访问受限或接口暂不可用，已停止采集')}",
-                           True, kind='weread_auth' if str(code) in messages else 'weread')
+                           True, kind=kind)
         return result
 
     def _set_login_cookie(self, name, value):
@@ -546,8 +631,20 @@ class WeReadSource:
         for attempt in range(2):
             try:
                 return getattr(self.browser, action)(*args)
-            except (ApiError, Cancelled):
+            except Cancelled:
                 raise
+            except ApiError as exc:
+                # -2041 / non-200 body: the page's temporary request
+                # credentials expired. Reload WeRead once and retry; a second
+                # failure is a real login problem and is raised as such.
+                if exc.kind != 'weread_ticket' or attempt:
+                    raise
+                logger.info("微信读书临时凭据失效，重新加载页面后重试：%s", action)
+                try:
+                    self.browser.reload_worker()
+                except Exception:
+                    self.browser.close()
+                continue
             except Exception as exc:
                 last_error = exc
                 self.browser.close()
@@ -579,7 +676,20 @@ class WeReadSource:
         self.started = True
         result = self.session.request(*args, **kwargs)
         self.check_cancel()
-        return self.session.check(result) if isinstance(result, dict) else result
+        if not isinstance(result, dict):
+            return result
+        try:
+            return self.session.check(result)
+        except ApiError as exc:
+            if exc.kind != 'weread_ticket':
+                raise
+            # Refresh x-wr-ticket / x-wrpa-0 once, then retry the same request.
+            self.session.renew()
+            if self.state_saver:
+                self.state_saver(self.session.encrypted_state_payload())
+            result = self.session.request(*args, **kwargs)
+            self.check_cancel()
+            return self.session.check(result) if isinstance(result, dict) else result
 
     def articles(self, account, limit):
         if not re.fullmatch(r"MP_WXS_\d+", account):
@@ -588,7 +698,7 @@ class WeReadSource:
             self.books = {b['bookId'] for b in self.shelf()}
         if account not in self.books:
             raise ApiError("微信读书书架未找到该公众号，请用同一微信账号在手机加入书架后同步")
-        items, seen, offset = [], set(), 0
+        items, seen, offset, skipped = [], set(), 0, 0
         browser_pages = self._browser_call('articles', account, limit) if self.browser else None
         if self.browser:
             self._save_browser_state()
@@ -602,21 +712,31 @@ class WeReadSource:
                 break
             before = len(seen)
             for group in groups:
-                for sub in group.get('subReviews', []):
-                    review = sub.get('review', {})
-                    info = review.get('mpInfo', {})
-                    rid = review.get('reviewId', sub.get('reviewId', ''))
+                subs = group.get('subReviews') if isinstance(group, dict) else None
+                for sub in subs if isinstance(subs, list) else []:
+                    # One malformed entry must not fail the whole account:
+                    # skip it, and only fail if nothing usable was returned.
+                    if not isinstance(sub, dict):
+                        skipped += 1
+                        continue
+                    review = sub.get('review') if isinstance(sub.get('review'), dict) else {}
+                    info = review.get('mpInfo') if isinstance(review.get('mpInfo'), dict) else {}
+                    rid = str(review.get('reviewId') or sub.get('reviewId') or '')
                     if not re.fullmatch(re.escape(account) + r'_[A-Za-z0-9_~\-]+', rid):
-                        raise ApiError("文章标识与公众号不匹配")
+                        skipped += 1
+                        continue
                     if rid in seen:
                         continue
                     seen.add(rid)
                     token = rid[len(account) + 1:].replace('~', '_')
-                    url = wechat_url('https://mp.weixin.qq.com/s/' + token)
                     try:
+                        url = wechat_url('https://mp.weixin.qq.com/s/' + token)
+                        # Without a real publish time an article cannot be
+                        # judged "new"; skip it rather than guess.
                         published = parse_date(info.get('time')).isoformat()
                     except (ValueError, TypeError, OverflowError, OSError):
-                        raise ApiError("文章缺少有效发布时间，已停止，避免将旧文章当成新文章") from None
+                        skipped += 1
+                        continue
                     self.db.execute('INSERT OR REPLACE INTO source_refs(url,review_id) VALUES(?,?)', (url, rid))
                     items.append({'url': url, 'title': info.get('title'), 'posted_at': published,
                                   'read_count': info.get('readNum'), 'like_count': info.get('likeNum')})
@@ -629,13 +749,15 @@ class WeReadSource:
                 break
             if browser_pages is not None and not browser_pages:
                 break
+        if skipped and not items:
+            raise ApiError(f"微信读书返回的 {skipped} 条文章数据均缺少有效标识或发布时间，接口格式可能已变化")
         return items
 
     def close(self):
         if self.browser:
             self.browser.close()
         if self.browser_profile_dir:
-            shutil.rmtree(self.browser_profile_dir, ignore_errors=True)
+            remove_profile_dir(self.browser_profile_dir)
             self.browser_profile_dir = None
 
     def content(self, url):

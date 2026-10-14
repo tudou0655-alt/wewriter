@@ -118,7 +118,7 @@ class CoreTest(unittest.TestCase):
                 return {'content': '【图片识别资料（AI 转写，可能有误，需人工核对）】\n' + '图片中的有效资料。' * 20,
                         'image_count': 1, 'article_summary': '图片资料'}
         config = dict(self.config)
-        config.update(article_limit=1, min_sources=1)
+        config.update(article_limit=1, min_sources=1, image_articles='vision')
         engine = Engine(database, FakeVault(), source_factory=ImageSource, model_factory=ImageModel)
         self.assertEqual(engine.run('image-only', config), '已完成')
         article = database.rows("SELECT * FROM articles WHERE title='图片文章'")[0]

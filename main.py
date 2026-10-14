@@ -71,8 +71,19 @@ def main():
         root.destroy()
         return
     base = args.data_dir or Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / ("WeWriterDemo" if args.demo else "WeWriter")
+    from wewriter import logs
+    logs.setup(base)
+    from wewriter import __version__
+    logs.logger.info("启动 WeWriter %s，数据目录 %s", __version__, base)
     db = Database(base / "workspace.sqlite")
     db.recover()
+    try:
+        from wewriter.weread import cleanup_stale_profiles
+        removed = cleanup_stale_profiles(base / "weread-edge-profile", older_than=600)
+        if removed:
+            logs.logger.info("已清理 %d 个残留 Edge 临时配置目录", removed)
+    except Exception:
+        logs.logger.exception("清理残留 Edge 配置目录失败")
     if args.clear_data:
         confirmed = messagebox.askyesno(
             "清空数据库",

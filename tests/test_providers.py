@@ -10,10 +10,14 @@ class ProviderTests(unittest.TestCase):
         old['providers'] = {'qwen': {'model':'old', 'base_url':'https://old.example'}, 'deepseek': {'model':'custom', 'base_url':'https://api.deepseek.com'}}
         old['summary_provider'] = 'qwen'
         old['search_url'] = 'https://dashscope.aliyuncs.com/old'
+        old['skip_promotions'] = True
+        old['promotion_keywords'] = ['双11']
         new = migrate(old)
         validate(new)
         self.assertEqual(new['summary_provider'], 'openai')
         self.assertNotIn('qwen', new['providers'])
+        self.assertNotIn('skip_promotions', new)
+        self.assertNotIn('promotion_keywords', new)
         self.assertEqual(new['providers']['deepseek']['model'], 'custom')
         self.assertEqual(old['summary_provider'], 'qwen')
 

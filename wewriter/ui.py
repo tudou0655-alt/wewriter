@@ -204,7 +204,7 @@ class App:
                                font=("Microsoft YaHei UI", 10, "bold"), command=lambda p=title: self.show(p))
             button.pack(fill="x", padx=10, pady=3)
             self.nav[title] = button
-        tk.Label(sidebar, text="本地数据 · 云端智能\nv0.10.2  试用版", justify="left", bg=SIDEBAR,
+        tk.Label(sidebar, text="本地数据 · 云端智能\nv0.10.3  试用版", justify="left", bg=SIDEBAR,
                  fg="#AEB4D3", font=("Microsoft YaHei UI", 9)).pack(
                      side="bottom", anchor="w", padx=18 if self.compact else 25, pady=25)
         right = ttk.Frame(self.root)
@@ -899,12 +899,9 @@ class App:
         quality_review = tk.BooleanVar(value=config['quality_review_enabled'])
         ttk.Checkbutton(frame, text='生成后进行一次 AI 二审', variable=quality_review).grid(row=9, column=0, columnspan=2, sticky='w', pady=(10, 5))
         ttk.Label(frame, text='对照原始证据复核事实边界、标题、结构和表达；每篇会增加一次写作模型调用。二审失败时保留初稿并提示人工复核。', wraplength=740, style='Sub.TLabel').grid(row=10, column=0, columnspan=2, sticky='w', pady=5)
-        skip_promotions = tk.BooleanVar(value=config.get('skip_promotions', True))
-        ttk.Checkbutton(frame, text='跳过促销、直播带货类文章', variable=skip_promotions).grid(row=11, column=0, columnspan=2, sticky='w', pady=(10, 5))
-        field(frame, 12, '促销关键词（用逗号分隔）', 'promotion_keywords', '，'.join(config.get('promotion_keywords', [])))
         image_vision = tk.BooleanVar(value=config.get('image_articles', 'skip') == 'vision')
-        ttk.Checkbutton(frame, text='识别图片型文章（文字不足 100 字时调用 OpenAI 识图，额外计费）', variable=image_vision).grid(row=13, column=0, columnspan=2, sticky='w', pady=(10, 5))
-        ttk.Label(frame, text='默认都按“跳过”处理：标题含关键词的文章不参与选文；图片为主的文章会由下一篇热门文章补位。', wraplength=740, style='Sub.TLabel').grid(row=14, column=0, columnspan=2, sticky='w', pady=5)
+        ttk.Checkbutton(frame, text='识别图片型文章（文字不足 100 字时调用 OpenAI 识图，额外计费）', variable=image_vision).grid(row=11, column=0, columnspan=2, sticky='w', pady=(10, 5))
+        ttk.Label(frame, text='默认关闭；图片为主且文字不足的文章会由下一篇热门文章补位。', wraplength=740, style='Sub.TLabel').grid(row=12, column=0, columnspan=2, sticky='w', pady=5)
         frame = section("每日定时")
         schedule_enabled = tk.BooleanVar(value=config["schedule_enabled"])
         ttk.Checkbutton(frame, text="启用每日自动采集和生成", variable=schedule_enabled).grid(row=0, column=0, columnspan=2, sticky="w")
@@ -928,8 +925,6 @@ class App:
             latest['allow_recollect_cleared'] = allow_recollect.get()
             latest['comments_enabled'] = comments_enabled.get()
             latest['quality_review_enabled'] = quality_review.get()
-            latest['skip_promotions'] = skip_promotions.get()
-            latest['promotion_keywords'] = [w.strip() for w in re.split(r'[,，、\s]+', variables['promotion_keywords'].get()) if w.strip()]
             latest['image_articles'] = 'vision' if image_vision.get() else 'skip'
             latest['source_provider'] = 'weread'
             latest['writing_mode'] = 'separate_web'

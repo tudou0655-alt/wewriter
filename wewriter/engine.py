@@ -15,7 +15,7 @@ import threading
 from copy import deepcopy
 from datetime import datetime, timedelta
 from .api import ApiError, Cancelled, EveryInfra, Model, Transport, digest, parse_date, wechat_url
-from .config import validate, migrate, is_promotion
+from .config import validate, migrate
 from .db import stamp
 from .hotspots import count, rank
 from .logs import logger
@@ -223,7 +223,7 @@ class Engine:
             raise TaskError("请先添加并启用至少一个公众号", ErrorCode.NO_ACCOUNTS)
         now = datetime.fromisoformat(job["created_at"])
         earliest = now - timedelta(hours=config["lookback_hours"])
-        candidates, successes, recollect, promotions = {}, 0, set(), 0
+        candidates, successes, recollect = {}, 0, set()
         for account in accounts:
             self.check()
             self.notify(f"正在同步：{account['name']}")
@@ -253,9 +253,6 @@ class Engine:
                     title = str(item.get("title") or "").strip()
                     if not title:
                         raise ValueError("标题缺失")
-                    if is_promotion(title, config):
-                        promotions += 1
-                        continue
                     article_id = db.save_article({"source_key": digest(url), "account_name": account["name"],
                         "title": title, "url": url, "published_at": published.isoformat()})
                     if db.rows('SELECT cleared FROM articles WHERE id=?', (article_id,))[0]['cleared']:
@@ -274,9 +271,6 @@ class Engine:
         if not successes:
             raise TaskError("所有公众号采集失败；" + (ctx.warnings[0] if ctx.warnings else "请检查登录或接口配置"),
                             ErrorCode.COLLECT)
-        if promotions:
-            self.notify(f"已按设置跳过 {promotions} 篇促销/直播类文章")
-            logger.info("任务 %s 跳过促销文章 %d 篇", job['run_key'], promotions)
         # Articles already used in a saved draft are not consumed again.
         used = self._used_articles()
         used.difference_update(recollect)
@@ -565,8 +559,6 @@ class Engine:
         candidates = {}
         for row in self.db.rows('''SELECT m.article_id,m.reads,m.likes,a.published_at,a.title
                 FROM job_metrics m JOIN articles a ON a.id=m.article_id WHERE m.job_id=?''', (job['id'],)):
-            if is_promotion(row['title'], config):
-                continue
             try:
                 candidates[row['article_id']] = {'reads': row['reads'], 'likes': row['likes'],
                                                   'published': parse_date(row['published_at'])}

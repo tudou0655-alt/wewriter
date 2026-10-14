@@ -209,7 +209,9 @@ class Engine:
         from .weread import WeReadSource
         return WeReadSource(self.vault.get("weread"), self.db, self.cancel,
                             state_saver=lambda value: self.vault.set_many({'weread': value}),
-                            profile_dir=self.profile_dir)
+                            profile_dir=self.profile_dir,
+                            skill_key=(self.vault.get('weread_skill')
+                                       if self.vault.has('weread_skill') else None))
 
     # -------------------------------------------------------------- collect
 
@@ -240,6 +242,8 @@ class Engine:
                 try:
                     if not isinstance(item, dict):
                         raise ValueError("文章条目格式无效")
+                    if item.get('collection_warning'):
+                        ctx.warn(f"{account['name']}：{item['collection_warning']}")
                     if item.get("is_deleted") in (True, 1, "true"):
                         continue
                     published = parse_date(item.get("posted_at"))

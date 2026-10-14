@@ -23,6 +23,8 @@ from .api import ApiError, Cancelled, NoRedirect, wechat_url, parse_date
 from .logs import logger
 
 BASE = "https://weread.qq.com"
+SKILL_GATEWAY = "https://i.weread.qq.com/api/agent/gateway"
+SKILL_VERSION = "1.0.5"
 IMAGE_LIMIT = 20
 IMAGE_BYTES_LIMIT = 8 * 1024 * 1024
 
@@ -125,7 +127,7 @@ def encoded_id(value):
     return result + hashlib.md5(result.encode('utf-8')).hexdigest()[:3]
 
 
-def browser_cookie_state(cookies):
+def browser_cookie_state(cookies, ticket='', wrpa=''):
     rows = []
     for cookie in cookies:
         if str(cookie.get('domain', '')).lstrip('.') != 'weread.qq.com':
@@ -134,7 +136,8 @@ def browser_cookie_state(cookies):
         rows.append({'name': cookie['name'], 'value': cookie['value'], 'domain': cookie['domain'],
                      'path': cookie.get('path') or '/', 'secure': bool(cookie.get('secure', True)),
                      'expires': int(expires) if isinstance(expires, (int, float)) and expires > 0 else None})
-    return json.dumps({'version': 2, 'cookies': rows, 'ticket': '', 'wrpa': ''}, ensure_ascii=False)
+    return json.dumps({'version': 2, 'cookies': rows,
+                       'ticket': str(ticket or ''), 'wrpa': str(wrpa or '')}, ensure_ascii=False)
 
 
 class WeReadBrowser:
@@ -146,6 +149,18 @@ class WeReadBrowser:
         self.state = state
         self.playwright = self.browser = self.context = self.process = None
         self.worker = None
+        self.ticket = ''
+        self.wrpa = ''
+        if state:
+            try:
+                saved = json.loads(state)
+                if isinstance(saved, dict):
+                    self.ticket = str(saved.get('ticket') or '')
+                    self.wrpa = str(saved.get('wrpa') or '')
+            except (TypeError, ValueError):
+                # The normal state loader reports malformed credentials later;
+                # browser startup should stay focused on creating the session.
+                pass
 
     @staticmethod
     def edge_path():
@@ -297,7 +312,29 @@ class WeReadBrowser:
         page.goto(BASE + '/', wait_until='domcontentloaded', timeout=60000)
 
     def cookie_state(self):
-        return browser_cookie_state(self.open().cookies([BASE]))
+        return browser_cookie_state(self.open().cookies([BASE]), self.ticket, self.wrpa)
+
+    def skill_enabled(self, page=None):
+        """Return whether the signed-in account has created its official Skill key.
+
+        The value is never returned to Python or logged; this is only a capability
+        check used to turn an otherwise opaque -2041 into a useful recovery step.
+        """
+        page = page or self.worker_page()
+        cookies = {item.get('name'): item.get('value')
+                   for item in self.open().cookies([BASE]) if item.get('value')}
+        result = page.evaluate("""async ({vid, skey}) => {
+            const response = await fetch('/api/skills/apikeyGet?only_show=1', {
+                credentials: 'include',
+                headers: {'Accept': 'application/json, text/plain, */*',
+                          'X-Vid': vid || '', 'X-Skey': skey || ''}
+            });
+            let data = {};
+            try { data = await response.json(); } catch (_) {}
+            return {status: response.status, enabled: Boolean(data.apikey)};
+        }""", {'vid': cookies.get('wr_vid', ''), 'skey': cookies.get('wr_skey', '')})
+        return bool(isinstance(result, dict) and result.get('status') == 200
+                    and result.get('enabled'))
 
     def shelf(self):
         result = self.worker_page().evaluate("""async () => {
@@ -341,6 +378,20 @@ class WeReadBrowser:
         context = self.open()
         page = context.new_page()
         results = []
+        captured = {'ticket': self.ticket, 'wrpa': self.wrpa}
+
+        def request_sent(request):
+            if '/web/mp/articles' not in request.url or 'bookId=' + book_id not in request.url:
+                return
+            try:
+                headers = {str(key).lower(): value for key, value in request.headers.items()}
+            except Exception:
+                return
+            if headers.get('x-wr-ticket'):
+                captured['ticket'] = headers['x-wr-ticket']
+            if headers.get('x-wrpa-0'):
+                captured['wrpa'] = headers['x-wrpa-0']
+
         def response_received(response):
             if '/web/mp/articles' not in response.url or 'bookId=' + book_id not in response.url:
                 return
@@ -350,6 +401,8 @@ class WeReadBrowser:
                 return
             if isinstance(data, dict):
                 results.append(data)
+
+        page.on('request', request_sent)
         page.on('response', response_received)
         try:
             page.goto(BASE + '/web/mp/reader/' + encoded_id(book_id),
@@ -367,11 +420,18 @@ class WeReadBrowser:
                 if unchanged >= 3 and results:
                     break
                 page.mouse.wheel(0, 5000)
+            self.ticket, self.wrpa = captured['ticket'], captured['wrpa']
+            successful = [item for item in results
+                          if isinstance(item.get('reviews'), list)
+                          and str(item.get('errCode', item.get('errcode', 0)) or 0) == '0']
+            if successful:
+                return successful
             if not results:
-                raise ApiError('Edge 未收到公众号文章列表；请重新登录微信读书', True, kind='weread_auth')
-            for result in results:
-                WeReadSession.check(result)
-            return results
+                raise ApiError('Edge 未收到公众号文章列表；请重新登录微信读书',
+                               True, kind='weread_auth')
+            WeReadSession.check(results[-1])
+            raise ApiError('微信读书未返回公众号文章列表；请重新扫码登录',
+                           True, kind='weread_auth')
         finally:
             page.close()
 
@@ -433,10 +493,6 @@ def browser_login(profile_dir, cancel=None):
                     time.sleep(1)
                     continue
                 mp = [book for book in books if str(book.get('bookId', '')).startswith('MP_WXS_')]
-                if mp:
-                    # A successful first-party article request proves that WPA and the
-                    # login device are both valid before the app accepts the session.
-                    browser.articles(mp[0]['bookId'], 1)
                 return browser.cookie_state(), len(mp)
         raise ApiError('登录等待超过 5 分钟，请重新点击 Edge 登录', True, kind='weread_auth')
     finally:
@@ -593,8 +649,74 @@ class WeReadSession:
             'ticket': self.ticket, 'wrpa': self.wrpa}, ensure_ascii=False)
 
 
+class WeReadSkill:
+    """Small adapter for the official WeRead Skill gateway.
+
+    The official gateway provides stable authentication and current metadata for
+    one public-account article.  It does not currently expose the historical MP
+    article list, so WeReadSource uses it as an explicit fallback for -2041.
+    """
+    def __init__(self, key, cancel=None):
+        self.key = str(key or '').strip()
+        self.cancel = cancel or threading.Event()
+
+    def request(self, api_name, **params):
+        if api_name not in ('/shelf/sync', '/review/single'):
+            raise ValueError('不支持的微信读书 Skill 接口')
+        if self.cancel.is_set():
+            raise Cancelled('任务已停止')
+        payload = {'api_name': api_name, 'skill_version': SKILL_VERSION, **params}
+        request = urllib.request.Request(SKILL_GATEWAY,
+            data=json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8'),
+            headers={'Authorization': 'Bearer ' + self.key,
+                     'Content-Type': 'application/json;charset=UTF-8',
+                     'Accept': 'application/json'})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                body = response.read(4 * 1024 * 1024 + 1)
+                if len(body) > 4 * 1024 * 1024:
+                    raise ApiError('微信读书 Skill 响应过大')
+        except urllib.error.HTTPError as exc:
+            code = exc.code
+            exc.close()
+            messages = {401: 'API Key 无效', 403: '当前 Key 没有接口权限',
+                        429: '请求过于频繁，请稍后重试'}
+            raise ApiError(f"微信读书 Skill HTTP {code}：{messages.get(code, '接口请求失败')}",
+                           code in (401, 403), kind='weread_skill') from None
+        except (urllib.error.URLError, TimeoutError, socket.timeout, OSError):
+            raise ApiError('无法连接微信读书 Skill，请检查本机网络', kind='network') from None
+        try:
+            result = json.loads(body)
+        except (ValueError, UnicodeError):
+            raise ApiError('微信读书 Skill 返回格式无效', kind='weread_skill') from None
+        if not isinstance(result, dict):
+            raise ApiError('微信读书 Skill 响应格式不匹配', kind='weread_skill')
+        code = result.get('errcode', result.get('errCode', 0))
+        if str(code or 0) != '0':
+            raise ApiError(f'微信读书 Skill 业务码 {code}：接口暂不可用',
+                           str(code) in ('-2010', '-2012'), kind='weread_skill')
+        return result
+
+    def shelf(self):
+        result = self.request('/shelf/sync')
+        books = result.get('books')
+        if not isinstance(books, list):
+            raise ApiError('微信读书 Skill 未返回书架数据', kind='weread_skill')
+        return [book for book in books if isinstance(book, dict)
+                and str(book.get('bookId', '')).startswith('MP_WXS_')]
+
+    def review(self, review_id):
+        result = self.request('/review/single', reviewId=review_id,
+                              commentsCount=0, likesCount=0)
+        review = result.get('review')
+        if not isinstance(review, dict):
+            raise ApiError('微信读书 Skill 未返回文章详情', kind='weread_skill')
+        return review
+
+
 class WeReadSource:
-    def __init__(self, state, db, cancel=None, session=None, state_saver=None, profile_dir=None):
+    def __init__(self, state, db, cancel=None, session=None, state_saver=None, profile_dir=None,
+                 skill_key=None, skill=None):
         if not state and session is None:
             raise ApiError("尚未登录微信读书，请在公众号管理中扫码登录", True)
         self.session = session or WeReadSession(state)
@@ -603,6 +725,7 @@ class WeReadSource:
         self.started = False
         self.books = None
         self.state_saver = state_saver
+        self.skill = skill or (WeReadSkill(skill_key, self.cancel) if skill_key else None)
         self.browser_profile_dir = None
         self.browser = None
         if profile_dir:
@@ -656,6 +779,8 @@ class WeReadSource:
         raise ApiError(f"Edge {labels.get(action, '采集')}会话连续两次中断：{detail}") from last_error
 
     def shelf(self):
+        if self.skill:
+            return self.skill.shelf()
         if self.browser:
             books = self._browser_call('shelf')
             self._save_browser_state()
@@ -691,13 +816,42 @@ class WeReadSource:
             self.check_cancel()
             return self.session.check(result) if isinstance(result, dict) else result
 
-    def articles(self, account, limit):
+    def _skill_latest_article(self, account):
+        if not self.skill:
+            raise ApiError(
+                '公众号历史列表凭据已失效，且尚未配置微信读书 Skill Key；'
+                '请在手机微信读书“我 → 设置 → 微信读书 Skill”获取 Key，并在软件设置中保存',
+                True, kind='weread_auth')
+        cover = self.request('/api/mp/cover', {'bookId': account})
+        review_id = str(cover.get('reviewId') or '')
+        if not re.fullmatch(re.escape(account) + r'_[A-Za-z0-9_~\-]+', review_id):
+            raise ApiError('微信读书没有返回该公众号的最新文章标识', kind='weread_skill')
+        review = self.skill.review(review_id)
+        info = review.get('mpInfo') if isinstance(review.get('mpInfo'), dict) else {}
+        title = str(info.get('title') or cover.get('title') or '').strip()
+        try:
+            published = parse_date(info.get('time') or review.get('createTime')).isoformat()
+        except (ValueError, TypeError, OverflowError, OSError):
+            raise ApiError('微信读书 Skill 返回的最新文章缺少发布时间', kind='weread_skill') from None
+        candidate_url = str(info.get('doc_url') or '').strip()
+        if not candidate_url:
+            token = review_id[len(account) + 1:].replace('~', '_')
+            candidate_url = 'https://mp.weixin.qq.com/s/' + token
+        try:
+            url = wechat_url(candidate_url)
+        except ValueError:
+            raise ApiError('微信读书 Skill 返回的原文链接无效', kind='weread_skill') from None
+        if not title:
+            raise ApiError('微信读书 Skill 返回的最新文章缺少标题', kind='weread_skill')
+        self.db.execute('INSERT OR REPLACE INTO source_refs(url,review_id) VALUES(?,?)',
+                        (url, review_id))
+        return {'url': url, 'title': title, 'posted_at': published,
+                'read_count': info.get('readNum'), 'like_count': info.get('likeNum'),
+                'collection_warning': '公众号历史列表临时不可用，已通过官方 Skill 获取该公众号最新文章'}
+
+    def _legacy_articles(self, account, limit):
         if not re.fullmatch(r"MP_WXS_\d+", account):
             raise ApiError("请先在微信读书关注该公众号，再点击“同步书架公众号”更新标识")
-        if self.books is None:
-            self.books = {b['bookId'] for b in self.shelf()}
-        if account not in self.books:
-            raise ApiError("微信读书书架未找到该公众号，请用同一微信账号在手机加入书架后同步")
         items, seen, offset, skipped = [], set(), 0, 0
         browser_pages = self._browser_call('articles', account, limit) if self.browser else None
         if self.browser:
@@ -753,6 +907,21 @@ class WeReadSource:
             raise ApiError(f"微信读书返回的 {skipped} 条文章数据均缺少有效标识或发布时间，接口格式可能已变化")
         return items
 
+    def articles(self, account, limit):
+        if not re.fullmatch(r"MP_WXS_\d+", account):
+            raise ApiError("请先在微信读书关注该公众号，再点击“同步书架公众号”更新标识")
+        if self.books is None:
+            self.books = {b['bookId'] for b in self.shelf()}
+        if account not in self.books:
+            raise ApiError("微信读书书架未找到该公众号，请用同一微信账号在手机加入书架后同步")
+        try:
+            return self._legacy_articles(account, limit)
+        except ApiError as exc:
+            if exc.kind != 'weread_ticket':
+                raise
+            logger.warning('公众号历史列表凭据失效，使用官方 Skill 获取最新文章：%s', account)
+            return [self._skill_latest_article(account)]
+
     def close(self):
         if self.browser:
             self.browser.close()
@@ -765,8 +934,17 @@ class WeReadSource:
         refs = self.db.rows('SELECT review_id FROM source_refs WHERE url=?', (url,))
         if not refs:
             raise ApiError("这篇旧素材没有微信读书标识，请重新采集；不要重试旧 EveryInfra 任务")
-        raw = (self._browser_call('content', refs[0]['review_id']) if self.browser else
-               self.request('/web/mp/content', {'reviewId': refs[0]['review_id']}, json_result=False))
+        if self.browser:
+            try:
+                raw = self._browser_call('content', refs[0]['review_id'])
+            except ApiError as exc:
+                if exc.kind != 'weread_ticket':
+                    raise
+                logger.warning('正文接口凭据失效，直接读取公众号原文：%s', url)
+                raw = self._browser_call('public_content', url)
+        else:
+            raw = self.request('/web/mp/content', {'reviewId': refs[0]['review_id']},
+                               json_result=False)
         if self.browser:
             self._save_browser_state()
         soup = BeautifulSoup(raw, 'html.parser')

@@ -1,3 +1,4 @@
+import json
 import tempfile
 import threading
 import unittest
@@ -5,8 +6,8 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from wewriter.api import ApiError, Cancelled
 from wewriter.db import Database
-from wewriter.weread import (WeReadBrowser, WeReadSession, WeReadSource,
-                             browser_login, encoded_id, sync_shelf)
+from wewriter.weread import (WeReadBrowser, WeReadSession, WeReadSkill, WeReadSource,
+                             browser_cookie_state, browser_login, encoded_id, sync_shelf)
 
 
 BOOK = 'MP_WXS_123'
@@ -52,6 +53,41 @@ class WeReadTest(unittest.TestCase):
         with self.assertRaises(ApiError):
             self.source.articles(BOOK, 3)
         self.assertEqual(self.session.request.call_count, 1)
+
+    def test_expired_history_list_falls_back_to_official_skill_latest_article(self):
+        skill = Mock()
+        skill.shelf.return_value = [{'bookId': BOOK, 'title': '测试号'}]
+        skill.review.return_value = {'reviewId': BOOK + '_official', 'createTime': 1791910256,
+            'mpInfo': {'title': '官方最新文章', 'time': 1791910256,
+                       'doc_url': 'https://mp.weixin.qq.com/s/official',
+                       'readNum': 3210, 'likeNum': 98}}
+        source = WeReadSource('{"version":2,"cookies":[]}', self.db, self.cancel,
+                              self.session, profile_dir=Path(self.temp.name) / 'profile',
+                              skill=skill)
+        source.browser = Mock()
+        source.browser.articles.side_effect = ApiError('-2041', True, kind='weread_ticket')
+        source.browser.reload_worker.return_value = None
+        self.session.request.return_value = {'reviewId': BOOK + '_official',
+                                             'title': '封面标题'}
+        items = source.articles(BOOK, 10)
+        self.assertEqual((items[0]['title'], items[0]['read_count'], items[0]['like_count']),
+                         ('官方最新文章', 3210, 98))
+        self.assertIn('官方 Skill', items[0]['collection_warning'])
+        self.assertEqual(self.db.rows('SELECT review_id FROM source_refs')[0]['review_id'],
+                         BOOK + '_official')
+        skill.review.assert_called_once_with(BOOK + '_official')
+        source.close()
+
+    def test_expired_history_list_without_skill_key_has_actionable_message(self):
+        source = WeReadSource('{"version":2,"cookies":[]}', self.db, self.cancel,
+                              self.session, profile_dir=Path(self.temp.name) / 'profile')
+        source.browser = Mock()
+        source.browser.shelf.return_value = [{'bookId': BOOK, 'title': '测试号'}]
+        source.browser.cookie_state.return_value = '{"version":2,"cookies":[]}'
+        source.browser.articles.side_effect = ApiError('-2041', True, kind='weread_ticket')
+        with self.assertRaisesRegex(ApiError, 'Skill Key.*软件设置'):
+            source.articles(BOOK, 10)
+        source.close()
 
     def test_expired_article_credential_gives_available_recovery_steps(self):
         with self.assertRaises(ApiError) as raised:
@@ -147,6 +183,21 @@ class WeReadTest(unittest.TestCase):
         source.browser.public_content.assert_called_once_with(url)
         source.close()
 
+    def test_expired_content_ticket_falls_back_directly_to_public_article(self):
+        url = 'https://mp.weixin.qq.com/s/ticket-fallback'
+        self.db.execute('INSERT INTO source_refs VALUES(?,?)', (url, BOOK + '_direct'))
+        source = WeReadSource('{"version":2,"cookies":[]}', self.db, self.cancel,
+                              self.session, profile_dir=Path(self.temp.name) / 'profile')
+        source.browser = Mock()
+        source.browser.content.side_effect = ApiError('-2041', True, kind='weread_ticket')
+        source.browser.public_content.return_value = (
+            "<div id='js_content'><p>" + '直接读取公众号原文成功。' * 20 + '</p></div>')
+        source.browser.cookie_state.return_value = '{"version":2,"cookies":[]}'
+        self.assertIn('直接读取公众号原文成功', source.content(url))
+        self.assertEqual(source.browser.content.call_count, 2)
+        source.browser.public_content.assert_called_once_with(url)
+        source.close()
+
     def test_browser_and_invalid_public_link_report_precise_reason(self):
         url = 'https://mp.weixin.qq.com/s/invalid-direct'
         self.db.execute('INSERT INTO source_refs VALUES(?,?)', (url, BOOK + '_invalid'))
@@ -215,6 +266,66 @@ class WeReadTest(unittest.TestCase):
         session.renew()
         restored = WeReadSession(session.encrypted_state_payload())
         self.assertEqual((restored.ticket, restored.wrpa), ('ticket', 'wrpa'))
+
+    def test_browser_state_preserves_mp_verification_headers(self):
+        state = browser_cookie_state([
+            {'name': 'wr_skey', 'value': 'saved', 'domain': '.weread.qq.com',
+             'path': '/', 'secure': True, 'expires': None}], 'ticket', 'wrpa')
+        restored = json.loads(state)
+        self.assertEqual((restored['ticket'], restored['wrpa']), ('ticket', 'wrpa'))
+
+    def test_browser_detects_missing_official_skill_key_without_returning_it(self):
+        browser = WeReadBrowser(Path(self.temp.name) / 'profile', cancel=threading.Event())
+        context = Mock()
+        context.cookies.return_value = [
+            {'name': 'wr_vid', 'value': 'vid'}, {'name': 'wr_skey', 'value': 'skey'}]
+        browser.context = context
+        page = Mock()
+        page.evaluate.return_value = {'status': 200, 'enabled': False}
+        self.assertFalse(browser.skill_enabled(page))
+        payload = page.evaluate.call_args.args[1]
+        self.assertEqual((payload['vid'], payload['skey']), ('vid', 'skey'))
+
+    def test_browser_2041_remains_ticket_error_for_source_fallback(self):
+        cancel = Mock(is_set=Mock(return_value=False), wait=Mock(return_value=False))
+        browser = WeReadBrowser(Path(self.temp.name) / 'profile', cancel=cancel)
+        context, page = Mock(), Mock()
+        context.new_page.return_value = page
+        browser.open = Mock(return_value=context)
+        handlers = {}
+        page.on.side_effect = lambda name, callback: handlers.__setitem__(name, callback)
+        request = Mock(url=f'https://weread.qq.com/web/mp/articles?bookId={BOOK}&offset=0')
+        request.headers = {'x-wrpa-0': 'present'}
+        response = Mock(url=request.url, status=200)
+        response.json.return_value = {'errCode': -2041}
+        page.goto.side_effect = lambda *args, **kwargs: (
+            handlers['request'](request), handlers['response'](response))
+        with self.assertRaises(ApiError) as caught:
+            browser.articles(BOOK, 1)
+        self.assertEqual(caught.exception.kind, 'weread_ticket')
+        page.close.assert_called_once()
+
+    def test_browser_ignores_transient_2041_when_a_successful_retry_arrives(self):
+        cancel = Mock(is_set=Mock(return_value=False), wait=Mock(return_value=False))
+        browser = WeReadBrowser(Path(self.temp.name) / 'profile', cancel=cancel)
+        context, page = Mock(), Mock()
+        context.new_page.return_value = page
+        browser.open = Mock(return_value=context)
+        handlers = {}
+        page.on.side_effect = lambda name, callback: handlers.__setitem__(name, callback)
+        request = Mock(url=f'https://weread.qq.com/web/mp/articles?bookId={BOOK}&offset=0')
+        request.headers = {'x-wr-ticket': 'fresh', 'x-wrpa-0': 'present'}
+        failed = Mock(url=request.url, status=200)
+        failed.json.return_value = {'errCode': -2041}
+        recovered = Mock(url=request.url, status=200)
+        recovered.json.return_value = {'reviews': [group('recovered')]}
+        page.goto.side_effect = lambda *args, **kwargs: (
+            handlers['request'](request), handlers['response'](failed),
+            handlers['response'](recovered))
+        pages = browser.articles(BOOK, 1)
+        self.assertEqual(pages, [{'reviews': [group('recovered')]}])
+        self.assertEqual((browser.ticket, browser.wrpa), ('fresh', 'present'))
+        page.close.assert_called_once()
 
     def test_old_cookie_only_login_state_still_loads(self):
         old = '[{"name":"wr_skey","value":"x","domain":".weread.qq.com","path":"/","secure":true,"expires":null}]'

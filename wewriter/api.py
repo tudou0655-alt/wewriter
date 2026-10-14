@@ -61,6 +61,12 @@ def safe_api_error_detail(raw):
     return text[:260]
 
 
+def is_connect_error(reason):
+    """True when the request certainly did not reach the server."""
+    import socket
+    return isinstance(reason, (socket.gaierror, ConnectionRefusedError))
+
+
 class Transport:
     def __init__(self, cancel=None):
         self.cancel = cancel or threading.Event()
@@ -92,8 +98,9 @@ class Transport:
                         raise ApiError("服务返回错误对象，请检查账户权限、余额及接口配置")
                     return result
             except urllib.error.HTTPError as exc:
-                # Do not repeat timeouts or 5xx POSTs automatically: they may have been billed.
-                if exc.code == 429 and attempt < 2:
+                # 429/502/503 mean the request was not processed. Timeouts, 500 and 504
+                # may have been processed (and billed), so they are never repeated.
+                if exc.code in (429, 502, 503) and attempt < 2:
                     delay = exc.headers.get("Retry-After", "")
                     delay = min(30, int(delay)) if delay.isdigit() else 2 ** (attempt + 1)
                     exc.close()
@@ -119,7 +126,15 @@ class Transport:
                     message += '；请求编号：' + request_id[:80]
                 raise ApiError(message, code in (401, 402, 403),
                                kind='bad_request' if code in (400, 422) else None) from None
-            except (urllib.error.URLError, TimeoutError, OSError):
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                # A failure while *connecting* (DNS, refused, reset before
+                # sending) means the server never received the request, so a
+                # retry cannot double-bill. Read timeouts are not retried.
+                reason = getattr(exc, 'reason', exc)
+                if attempt < 2 and is_connect_error(reason):
+                    if self.cancel.wait(2 * (attempt + 1)):
+                        raise Cancelled("任务已停止")
+                    continue
                 raise ApiError("网络连接失败或超时；为避免重复计费，未自动重发，请检查网络后重试",
                                kind="network") from None
             except (json.JSONDecodeError, UnicodeError):
@@ -258,9 +273,9 @@ def json_object(text):
     try:
         value = json.loads(text)
     except json.JSONDecodeError:
-        raise ApiError("模型未返回有效 JSON，请重试或切换模型") from None
+        raise ApiError("模型未返回有效 JSON，请重试或切换模型", kind='validation') from None
     if not isinstance(value, dict):
-        raise ApiError("模型 JSON 不是对象")
+        raise ApiError("模型 JSON 不是对象", kind='validation')
     return value
 
 
@@ -467,10 +482,10 @@ class Model:
     @staticmethod
     def _finish_draft(result, sources, config):
         if not all(isinstance(result.get(k), str) and result[k].strip() for k in ('title', 'body')):
-            raise ApiError('稿件缺少标题或正文')
+            raise ApiError('稿件缺少标题或正文', kind='validation')
         for field in ('outline', 'review_notes'):
             if not isinstance(result.get(field), list) or any(not isinstance(x, str) for x in result[field]):
-                raise ApiError('稿件大纲或审核提示格式无效')
+                raise ApiError('稿件大纲或审核提示格式无效', kind='validation')
         # Models occasionally append their own source list. The workbench already keeps the
         # complete source metadata and export creates the public website list consistently.
         headings = list(re.finditer(r'(?im)^#{0,6}\s*(?:参考来源|参考资料|资料来源|引用来源)\s*$', result['body']))
@@ -489,19 +504,32 @@ class Model:
         allowed = {s['source_id'] for s in sources}
         citations = set(re.findall(r'\[([SW]\d+)\]', result['body']))
         if not citations or not citations <= allowed:
-            raise ApiError('正文缺少来源标记或包含无效来源，未保存为成稿')
+            raise ApiError('正文缺少来源标记或包含无效来源，未保存为成稿', kind='validation')
         independent = config.get('writing_mode') == 'single_web'
         degraded = independent and config.get('research_degraded', False)
         if degraded and not any(c.startswith('S') for c in citations):
-            raise ApiError('降级稿件未引用公众号原文，未保存；请重试该篇任务')
+            raise ApiError('降级稿件未引用公众号原文，未保存；请重试该篇任务', kind='validation')
         if independent and not degraded and (not any(c.startswith('W') for c in citations)
                                                or not any(c.startswith('S') for c in citations)):
-            raise ApiError('稿件未同时引用原文和联网来源，未保存；请重试该篇任务')
+            raise ApiError('稿件未同时引用原文和联网来源，未保存；请重试该篇任务', kind='validation')
         if result['title'] in config.get('avoid_titles', []):
-            raise ApiError('稿件标题与本批已生成文章相同，请重试该篇任务')
+            raise ApiError('稿件标题与本批已生成文章相同，请重试该篇任务', kind='validation')
         return result
 
     def write(self, sources, config):
+        """Write once; if only the output format/citations are wrong, ask for one repair."""
+        try:
+            return self._write_once(sources, config)
+        except ApiError as exc:
+            if exc.kind != 'validation':
+                raise
+            first_error = str(exc)
+        return self._write_once(sources, config, feedback=(
+            '上一次输出未通过程序校验：' + first_error + '。请重新完整输出。'
+            '正文必须使用 sources 中已有的 source_id 作为 [S数字]/[W数字] 标记，不得编造编号；'
+            '严格按要求的 JSON 字段输出。'))
+
+    def _write_once(self, sources, config, feedback=''):
         independent = config.get('writing_mode') == 'single_web'
         degraded = independent and config.get('research_degraded', False)
         instructions = (('本次只写一篇独立文章。联网搜索因连接失败或超时已降级。只根据公众号素材写作，'
@@ -534,10 +562,12 @@ class Model:
             json.dumps({"topic": config["topic"] or "从材料中选择一个有足够证据的共同主题",
                         "style": config["style"], "target_chinese_characters": config["target_words"],
                         "avoid_titles": config.get('avoid_titles', []),
+                        "validation_feedback": feedback or None,
                         "sources": sources}, ensure_ascii=False), tokens=12000)
+        result = self._finish_draft(result, sources, config)
         if degraded and not any('未使用联网' in note for note in result['review_notes']):
             result['review_notes'].append('联网搜索连接失败或超时，本稿未使用联网补充资料，关键事实需人工复核')
-        return self._finish_draft(result, sources, config)
+        return result
 
     def review(self, draft, sources, config):
         """Run one evidence-bound editorial pass without performing new research."""

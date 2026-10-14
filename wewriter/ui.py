@@ -17,8 +17,23 @@ from zoneinfo import ZoneInfo
 from .api import ApiError, Model, Transport
 from .config import due_key, validate
 from .engine import Engine
+from .logs import logger
 from .windows import startup_enabled, set_startup
 
+ERROR_LABELS = {'material': '素材不可用', 'no_accounts': '未添加公众号', 'collect': '采集失败',
+                'auth': '登录/密钥', 'network': '网络', 'model_output': '模型输出', 'api': '接口错误',
+                'config': '设置问题', 'cancelled': '已停止', 'internal': '程序异常'}
+ERROR_HINTS = {
+    'material': '这篇文章无法提供可用正文（已删除、验证页或图片为主）。批量任务会自动由下一篇补位；也可扩大时间范围后新建任务。',
+    'no_accounts': '到“公众号管理”同步书架或启用公众号。',
+    'collect': '所有公众号都没能读取列表。先在“公众号管理”点“测试采集”，失败时重新扫码登录。',
+    'auth': '微信读书登录失效或 API Key/余额/权限有问题。微信读书类错误请重新扫码；HTTP 401/402/403 请检查设置中的 Key 和账户余额。',
+    'network': '网络连接失败或超时。检查网络后重试，已完成的步骤不会重复计费。',
+    'model_output': '模型两次输出都没通过格式或来源校验。直接重试通常即可；反复出现可换写作模型。',
+    'api': '接口返回错误，详情见结果说明；可稍后重试。',
+    'config': '请按结果说明调整设置后重试。',
+    'internal': '程序内部异常，详情已写入数据目录 logs\\wewriter.log。可以先重试，反复出现请把日志发给开发者。',
+}
 BG = "#F6F7FC"
 PANEL = "#FFFFFF"
 INK = "#20243A"
@@ -117,6 +132,7 @@ class App:
         self.build_shell()
         self.show("概览")
         self.root.protocol("WM_DELETE_WINDOW", self.close)
+        self.root.report_callback_exception = self.report_callback_exception
         self.root.after(150, self.poll)
         self.root.after(2000, self.schedule_tick)
 
@@ -188,7 +204,7 @@ class App:
                                font=("Microsoft YaHei UI", 10, "bold"), command=lambda p=title: self.show(p))
             button.pack(fill="x", padx=10, pady=3)
             self.nav[title] = button
-        tk.Label(sidebar, text="本地数据 · 云端智能\nv0.10.0  试用版", justify="left", bg=SIDEBAR,
+        tk.Label(sidebar, text="本地数据 · 云端智能\nv0.10.1  试用版", justify="left", bg=SIDEBAR,
                  fg="#AEB4D3", font=("Microsoft YaHei UI", 9)).pack(
                      side="bottom", anchor="w", padx=18 if self.compact else 25, pady=25)
         right = ttk.Frame(self.root)
@@ -256,7 +272,9 @@ class App:
             messagebox.showerror("无法保存", "该公众号标识已存在，请勿重复添加。", parent=self.root)
         except Exception as exc:
             # UI validation errors are local, network adapters never include raw server responses.
-            messagebox.showerror("操作未完成", str(exc), parent=self.root)
+            if not isinstance(exc, (ValueError, ApiError)):
+                logger.exception("界面操作异常")
+            messagebox.showerror("操作未完成", str(exc) or type(exc).__name__, parent=self.root)
 
     def require_idle(self):
         if self.busy:
@@ -776,15 +794,18 @@ class App:
             self.start_worker(lambda: self.engine.run(job["run_key"], json.loads(job["config"])), "正在重试任务…")
         def detail():
             job = self.db.rows("SELECT * FROM jobs WHERE id=?", (self.selection(tree),))[0]
-            self.text_window("任务详情", f"任务 #{job['id']}\n状态：{job['status']}\n阶段：{job['stage']}\n{job['message']}\n\n警告：\n" +
+            hint = ERROR_HINTS.get(job.get('error_code') or '', '')
+            self.text_window("任务详情", f"任务 #{job['id']}\n状态：{job['status']}\n阶段：{job['stage']}\n{job['message']}\n" +
+                             (f"\n处理建议：{hint}\n" if hint else '') + "\n警告：\n" +
                              "\n".join(json.loads(job["warnings"])) + "\n\n配置快照（不含密钥）：\n" + json.dumps(json.loads(job["config"]), ensure_ascii=False, indent=2))
         self.button(row, "重试所选任务", retry, True)
         self.button(row, "查看详情", detail)
         self.button(row, "停止运行", self.engine.stop)
         self.button(row, "刷新", lambda: self.show("运行记录"))
-        tree = self.table(self.content, [("id", "编号", 50), ("time", "开始时间", 120), ("status", "状态", 90), ("stage", "阶段", 110), ("message", "结果", 410)])
+        tree = self.table(self.content, [("id", "编号", 50), ("time", "开始时间", 120), ("status", "状态", 90), ("kind", "错误类型", 90), ("stage", "阶段", 100), ("message", "结果", 330)])
         for j in self.db.rows("SELECT * FROM jobs ORDER BY id DESC LIMIT 300"):
-            tree.insert("", "end", iid=j["id"], values=(j["id"], local_time(j["created_at"]), j["status"], j["stage"], j["message"]))
+            kind = ERROR_LABELS.get(j.get('error_code') or '', '')
+            tree.insert("", "end", iid=j["id"], values=(j["id"], local_time(j["created_at"]), j["status"], kind, j["stage"], j["message"]))
         self.stripe_rows(tree)
         tree.bind("<Double-1>", lambda e: self.safe(detail))
 
@@ -870,6 +891,12 @@ class App:
         quality_review = tk.BooleanVar(value=config['quality_review_enabled'])
         ttk.Checkbutton(frame, text='生成后进行一次 AI 二审', variable=quality_review).grid(row=9, column=0, columnspan=2, sticky='w', pady=(10, 5))
         ttk.Label(frame, text='对照原始证据复核事实边界、标题、结构和表达；每篇会增加一次写作模型调用。二审失败时保留初稿并提示人工复核。', wraplength=740, style='Sub.TLabel').grid(row=10, column=0, columnspan=2, sticky='w', pady=5)
+        skip_promotions = tk.BooleanVar(value=config.get('skip_promotions', True))
+        ttk.Checkbutton(frame, text='跳过促销、直播带货类文章', variable=skip_promotions).grid(row=11, column=0, columnspan=2, sticky='w', pady=(10, 5))
+        field(frame, 12, '促销关键词（用逗号分隔）', 'promotion_keywords', '，'.join(config.get('promotion_keywords', [])))
+        image_vision = tk.BooleanVar(value=config.get('image_articles', 'skip') == 'vision')
+        ttk.Checkbutton(frame, text='识别图片型文章（文字不足 100 字时调用 OpenAI 识图，额外计费）', variable=image_vision).grid(row=13, column=0, columnspan=2, sticky='w', pady=(10, 5))
+        ttk.Label(frame, text='默认都按“跳过”处理：标题含关键词的文章不参与选文；图片为主的文章会由下一篇热门文章补位。', wraplength=740, style='Sub.TLabel').grid(row=14, column=0, columnspan=2, sticky='w', pady=5)
         frame = section("每日定时")
         schedule_enabled = tk.BooleanVar(value=config["schedule_enabled"])
         ttk.Checkbutton(frame, text="启用每日自动采集和生成", variable=schedule_enabled).grid(row=0, column=0, columnspan=2, sticky="w")
@@ -893,6 +920,9 @@ class App:
             latest['allow_recollect_cleared'] = allow_recollect.get()
             latest['comments_enabled'] = comments_enabled.get()
             latest['quality_review_enabled'] = quality_review.get()
+            latest['skip_promotions'] = skip_promotions.get()
+            latest['promotion_keywords'] = [w.strip() for w in re.split(r'[,，、\s]+', variables['promotion_keywords'].get()) if w.strip()]
+            latest['image_articles'] = 'vision' if image_vision.get() else 'skip'
             latest['source_provider'] = 'weread'
             latest['writing_mode'] = 'separate_web'
             for provider in ("openai", "deepseek"):
@@ -965,6 +995,13 @@ class App:
         config = self.db.config()
         self.start_worker(lambda: self.engine.run("manual:" + uuid.uuid4().hex, config), "开始采集…")
 
+    def report_callback_exception(self, kind, value, tb):
+        logger.error("界面回调异常", exc_info=(kind, value, tb))
+        try:
+            self.status.set(f"界面出现异常（{kind.__name__}），已记录到日志，可继续使用")
+        except Exception:
+            pass
+
     def start_worker(self, action, status):
         self.require_idle()
         self.busy = True
@@ -976,10 +1013,33 @@ class App:
                 self.events.put(("done", str(result or "已完成")))
             except Exception as exc:
                 safe = isinstance(exc, (ApiError, ValueError, RuntimeError))
-                self.events.put(("done", "操作未完成：" + (str(exc) if safe else "内部错误，请联系开发者")))
-        threading.Thread(target=work, daemon=True).start()
+                if not isinstance(exc, (ApiError, ValueError)):
+                    logger.exception("后台任务异常：%s", status)
+                detail = str(exc) if safe else f"内部错误（{type(exc).__name__}），详情已写入日志 logs\\wewriter.log"
+                self.events.put(("done", "操作未完成：" + detail))
+        threading.Thread(target=work, daemon=True, name="worker").start()
 
     def poll(self):
+        # The poll loop must survive any single bad event; otherwise the
+        # progress bar spins forever and the app believes a task is running.
+        try:
+            self._drain_events()
+        except Exception:
+            logger.exception("处理界面事件异常")
+            self.busy = False
+            try:
+                self.progress.stop()
+            except Exception:
+                pass
+        if self.closed:
+            return
+        try:
+            if self.root.winfo_exists():
+                self.root.after(150, self.poll)
+        except tk.TclError:
+            pass
+
+    def _drain_events(self):
         try:
             while True:
                 kind, text = self.events.get_nowait()
@@ -996,14 +1056,17 @@ class App:
                     self.busy = False
                     self.progress.stop()
                     self.status.set(text)
+                    if getattr(self, 'quit_pending', False):
+                        self.close(force=True)
+                        if self.closed:
+                            return
+                        continue
                     if self.page in ("概览", "运行记录", "文章资料库", "公众号管理"):
                         self.show(self.page)
                 else:
                     self.status.set(text)
         except queue.Empty:
             pass
-        if self.root.winfo_exists():
-            self.root.after(150, self.poll)
 
     def schedule_tick(self):
         if not self.demo and not self.busy:
@@ -1013,6 +1076,7 @@ class App:
                 if key and not self.db.rows("SELECT id FROM jobs WHERE run_key=?", (key,)):
                     self.start_worker(lambda: self.engine.run(key, config), "执行每日定时任务…")
             except Exception:
+                logger.exception("定时检查异常")
                 self.status.set("定时配置异常，请检查设置")
         self.root.after(30000, self.schedule_tick)
 
@@ -1048,7 +1112,8 @@ class App:
                 return
         if self.busy:
             self.engine.stop()
-            self.status.set("正在停止任务，请等待当前请求结束后再退出（最长约 100 秒）")
+            self.quit_pending = True
+            self.status.set("正在停止任务，当前请求结束后软件会自动退出（最长约 100 秒）")
             return
         if self.tray:
             self.tray.stop()

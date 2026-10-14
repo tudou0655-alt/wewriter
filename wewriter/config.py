@@ -15,6 +15,14 @@ DEFAULTS = {
     "per_account_limit": 24, "min_sources": 2, "target_words": 1500,
     "topic": "", "style": "面向普通读者，清晰、客观、有逻辑，避免夸张营销和空泛套话。",
     "summary_provider": "openai", "writer_provider": "deepseek",
+    # Promotion / live-stream posts are mostly posters with little text; they
+    # rarely make usable material and image recognition costs extra calls.
+    "skip_promotions": True,
+    "promotion_keywords": ["双11", "双十一", "双12", "618", "直播间", "抽奖", "爆品", "秒杀",
+                           "优惠券", "领券", "预告", "福利", "限时", "折扣", "满减", "入手", "加购"],
+    # 'skip': articles whose text is under 100 characters are skipped (next
+    # ranked article takes the slot). 'vision': send images to OpenAI.
+    "image_articles": "skip",
     "providers": {
         "openai": {"base_url": "https://api.openai.com/v1", "model": "gpt-5-mini"},
         "deepseek": {"base_url": "https://api.deepseek.com", "model": "deepseek-flash"},
@@ -41,7 +49,20 @@ def migrate(config):
     return result
 
 
+def is_promotion(title, config):
+    if not config.get('skip_promotions', True):
+        return False
+    text = str(title or '').casefold()
+    return any(str(word).strip() and str(word).strip().casefold() in text
+               for word in config.get('promotion_keywords', DEFAULTS['promotion_keywords']))
+
+
 def validate(config):
+    if config.get('image_articles', 'skip') not in ('skip', 'vision'):
+        raise ValueError('图片型文章处理方式无效')
+    keywords = config.get('promotion_keywords', [])
+    if not isinstance(keywords, list) or any(not isinstance(k, str) for k in keywords):
+        raise ValueError('促销关键词格式无效')
     if config.get('writing_mode', 'combined') not in ('combined', 'separate_web', 'single_web'):
         raise ValueError('写作模式无效')
     if config.get('draft_count', 3) not in (2, 3):

@@ -4,7 +4,10 @@ import ctypes
 from ctypes import wintypes
 import json
 import os
+import threading
 from pathlib import Path
+
+_LOCK = threading.RLock()
 
 
 class Blob(ctypes.Structure):
@@ -38,9 +41,21 @@ class Vault:
         self.path = Path(path)
 
     def _read(self):
-        if not self.path.exists():
-            return {}
-        return json.loads(self.path.read_text(encoding="utf-8"))
+        with _LOCK:
+            if not self.path.exists():
+                return {}
+            try:
+                data = json.loads(self.path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                raise ValueError("密钥文件已损坏，请在设置中重新填写 API Key 并重新扫码登录微信读书") from None
+            return data if isinstance(data, dict) else {}
+
+    def _write(self, data):
+        with _LOCK:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temp = self.path.with_name(self.path.name + f".{os.getpid()}.{threading.get_ident()}.tmp")
+            temp.write_text(json.dumps(data), encoding="utf-8")
+            os.replace(temp, self.path)
 
     def has(self, name):
         return bool(self._read().get(name))
@@ -54,18 +69,15 @@ class Vault:
         return protect(base64.b64decode(value), decrypt=True).decode("utf-8")
 
     def set_many(self, values):
-        data = self._read()
-        for name, value in values.items():
-            if value.strip():
-                data[name] = base64.b64encode(protect(value.strip().encode("utf-8"))).decode("ascii")
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temp = self.path.with_suffix(".tmp")
-        temp.write_text(json.dumps(data), encoding="utf-8")
-        os.replace(temp, self.path)
+        with _LOCK:
+            data = self._read()
+            for name, value in values.items():
+                if value.strip():
+                    data[name] = base64.b64encode(protect(value.strip().encode("utf-8"))).decode("ascii")
+            self._write(data)
 
     def delete(self, name):
-        data = self._read()
-        data.pop(name, None)
-        temp = self.path.with_suffix(".tmp")
-        temp.write_text(json.dumps(data), encoding="utf-8")
-        os.replace(temp, self.path)
+        with _LOCK:
+            data = self._read()
+            data.pop(name, None)
+            self._write(data)

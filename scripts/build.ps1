@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$version = '0.10.0'
+$version = '0.10.1'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Push-Location -LiteralPath $projectRoot
 try {

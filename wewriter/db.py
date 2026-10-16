@@ -54,8 +54,26 @@ CREATE TABLE IF NOT EXISTS draft_versions (
  id INTEGER PRIMARY KEY, draft_id INTEGER NOT NULL REFERENCES drafts(id),
  revision INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
  created_at TEXT NOT NULL, UNIQUE(draft_id, revision));
-PRAGMA user_version=1;
 """
+
+
+def _add_column(db, table, column, ddl):
+    if column not in {r[1] for r in db.execute('PRAGMA table_info(' + table + ')')}:
+        db.execute('ALTER TABLE ' + table + ' ADD COLUMN ' + column + ' ' + ddl)
+
+
+def _migrate_v2(db):
+    # v1 databases from older releases may lack these columns.
+    for table in ('articles', 'drafts'):
+        _add_column(db, table, 'cleared', 'INTEGER NOT NULL DEFAULT 0')
+    # Structured failure reason (see engine.ErrorCode); '' = no error.
+    _add_column(db, 'jobs', 'error_code', "TEXT NOT NULL DEFAULT ''")
+
+
+# MIGRATIONS[n] upgrades a version n-1 database to version n. Steps must be idempotent,
+# because a database may have been partially upgraded or opened by an older release.
+MIGRATIONS = {2: _migrate_v2}
+SCHEMA_VERSION = max(MIGRATIONS)
 
 
 class Database:
@@ -63,18 +81,29 @@ class Database:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
+            self.check_version(db)
             db.execute("PRAGMA journal_mode=WAL")
-            db.executescript(SCHEMA)
-            self.cleanup_schema(db)
+            self.migrate_schema(db)
 
     @staticmethod
-    def cleanup_schema(db):
-        for table in ('articles', 'drafts'):
-            if 'cleared' not in {r[1] for r in db.execute('PRAGMA table_info(' + table + ')')}:
-                db.execute('ALTER TABLE ' + table + ' ADD COLUMN cleared INTEGER NOT NULL DEFAULT 0')
-        if 'error_code' not in {r[1] for r in db.execute('PRAGMA table_info(jobs)')}:
-            # Structured failure reason (see engine.ErrorCode); '' = no error.
-            db.execute("ALTER TABLE jobs ADD COLUMN error_code TEXT NOT NULL DEFAULT ''")
+    def check_version(db):
+        """Refuse a database written by a newer release before anything modifies it."""
+        version = db.execute("PRAGMA user_version").fetchone()[0]
+        if version > SCHEMA_VERSION:
+            raise ValueError("数据库来自更新版本的软件（版本 %d，当前支持 %d），请升级软件后再打开"
+                             % (version, SCHEMA_VERSION))
+        return version
+
+    @classmethod
+    def migrate_schema(cls, db):
+        """Create missing tables and apply pending migrations; return the resulting version."""
+        version = cls.check_version(db)
+        db.executescript(SCHEMA)
+        for target in range(2, SCHEMA_VERSION + 1):
+            if target > version:
+                MIGRATIONS[target](db)
+        db.execute("PRAGMA user_version=%d" % SCHEMA_VERSION)
+        return SCHEMA_VERSION
 
     def clear_records(self, kind, ids=None):
         """Purge content, retaining minimal identity to prevent accidental regeneration."""
@@ -282,7 +311,10 @@ class Database:
         try:
             if origin.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise ValueError("备份数据库损坏")
-            if origin.execute("PRAGMA user_version").fetchone()[0] != 1:
+            version = origin.execute("PRAGMA user_version").fetchone()[0]
+            if version > SCHEMA_VERSION:
+                raise ValueError("备份来自更新版本的软件，请先升级后再恢复")
+            if version < 1:
                 raise ValueError("备份版本不匹配")
             tables = {r[0] for r in origin.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             if not {"accounts", "articles", "jobs", "drafts", "settings", "analyses", "draft_versions"} <= tables:
@@ -293,8 +325,7 @@ class Database:
             origin.close()
         self.recover()
         with self.connect() as db:
-            db.executescript(SCHEMA)
-            self.cleanup_schema(db)
+            self.migrate_schema(db)
         self.prune_missing_images()
         config = self.config()
         config["schedule_enabled"] = False

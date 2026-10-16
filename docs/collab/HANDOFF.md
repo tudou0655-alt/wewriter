@@ -1,98 +1,110 @@
-# Current handoff — T-001 日志敏感信息脱敏加固
+# Current handoff — T-002 版本化 SQLite 迁移
 
 Updated: 2026-10-16
 From: Codex
 To: human
-Task: T-001
+Task: T-002
 Status: `done`
 
 ## Final disposition
 
-- Codex 已完成只读审查，结论：通过；未发现阻塞性或需要返工的问题。
-- Codex 复跑专项测试：10 项通过；复跑全量测试：121 项通过（111 项基线 + 10 项新增）。
-- `git diff --check` 通过，仅有工作区换行符提示。
-- 人工已于 2026-10-16 明确确认 T-001 验收通过，并授权更新为 `done`、创建本地提交及推送 GitHub。
-- 本地仓库当前未配置 Git remote；本地提交完成后，GitHub 推送需先取得并配置正确的远程仓库 URL。
+- Codex 已完成两轮只读审查；较新版本数据库被旧程序修改的问题已修复，最终结论为通过。
+- Codex 复跑迁移专项测试 8 项和全量测试 129 项，全部通过。
+- 人工已于 2026-10-16 确认验收完成，并授权标记 `done`、创建本地提交及推送 GitHub。
+
+## How T-002 was chosen
+
+Claude 按上一份交接做只读发现后，在项目线程推荐了“版本化 SQLite 迁移”，范围是 `wewriter/db.py`、`tests/test_db_migrations.py` 加两份协作文档；人工于 2026-10-16 回复“迁移”批准。本任务没有单独的 REQUIREMENTS/PLAN 更新（不在获准文件内），范围和验收标准记录在 `TASKS.md` 的 T-002 条目。
 
 ## Implementation result
 
-- Branch: `master`，基于 `d8f92fa`，未提交、未推送。
-- Claude 编辑的文件：`wewriter/logs.py`、`tests/test_logs.py`（新文件）、`docs/collab/TASKS.md`（T-001 状态与勾选）、本文件。未改动 `REQUIREMENTS.md`、`PLAN.md` 中 Codex 的未提交修改。
-- `wewriter/logs.py`：
-  - 新增集中定义的 `_SECRET_FIELDS` / `_SECRET_PATTERNS` 和公开函数 `redact(text)`，统一以 `[已隐藏]` 替换值、保留字段名。
-  - 覆盖：`api_key`/`apiKey`/`api-key`/`X-Api-Key`、`skill_key`/`skillKey`、`access_token`/`accessToken`、`refresh_token`、`wr_skey`/`wr_rt`/`wr_vid`，形式包括 `k=v`、`k: v`、JSON/Python dict 引号、URL 查询和 Cookie；URL 中的 `?key=`/`&token=`；`Authorization` 头（Bearer/Basic/Token 或无 scheme）；独立的 `Bearer <token>`；独立的 `sk-`/`sess-` 密钥（前缀须位于词首，值至少 16 位）。
-  - `_Redact` 过滤器：参数化消息先格式化后脱敏；参数格式错误时保留模板并附“日志参数格式化失败”，不再原样放行；`exc_info` 的 traceback 在过滤器中预先格式化并脱敏写入 `exc_text`；`stack_info` 同样脱敏；任何意外异常回退为 `[已隐藏]` 而不中断日志。
-  - 修复旧正则的过度脱敏：旧模式中 `sk-` 无词首限制，会把 `task-123456`、`risk-assessment` 这类普通文本误隐藏。
-  - 未改动日志目录、轮转、格式、异常钩子。
-- `tests/test_logs.py`：10 个测试，表驱动 `LEAK_CASES`（18 例）与 `KEEP_CASES`（11 个反例），另含上下文保留、幂等、非字符串输入、参数化日志、异常消息与 traceback、错误格式参数、过滤器始终放行。所有凭据均为 `FAKE...`/`00000000` 形式的虚构值。
+- Branch: `codex/t001-github`，基于 `691ee09`；未提交、未推送、未切换或创建分支。
+- `wewriter/db.py`：
+  - 从 `SCHEMA` 中删除 `PRAGMA user_version=1`（以前每次启动都会把版本写回 1）。
+  - 新增 `MIGRATIONS = {2: _migrate_v2}` 和 `SCHEMA_VERSION = max(MIGRATIONS)`。`_migrate_v2` 把原 `cleanup_schema` 的补列逻辑（`articles`/`drafts.cleared`、`jobs.error_code`）改成幂等的 v1→v2 步骤，经 `_add_column` 辅助函数执行。
+  - `Database.migrate_schema(db)` 替换 `cleanup_schema`：`check_version` → 执行 `SCHEMA` 建缺失表 → 按序执行高于当前版本的迁移 → 写入 `SCHEMA_VERSION`。
+  - 第 1 轮审查修改（人工转达，2026-10-16）：新增 `Database.check_version(db)`。`__init__` 在 `PRAGMA journal_mode=WAL` 和 `executescript(SCHEMA)` 之前调用它；`user_version > SCHEMA_VERSION` 时抛出 `ValueError`（“数据库来自更新版本的软件……请升级软件后再打开”），不对库做任何修改。之前“不降级、继续打开”的行为已删除。
+  - `restore()`：接受 `1 <= user_version <= SCHEMA_VERSION` 的备份，恢复后通过 `migrate_schema` 自动升级；高于当前版本时报“备份来自更新版本的软件，请先升级后再恢复”；版本 0 仍报“备份版本不匹配”。
+- `tests/test_db_migrations.py`：8 项测试，覆盖新库、缺列的 v1 库升级并保留账号/文章/任务、部分升级的 v1 库、重复启动幂等、拒绝较新版本的库且版本号/journal_mode/表结构/数据快照均不变、恢复 v1 备份后升级（且不改动备份文件）、拒绝较新版本备份且当前数据不受影响、拒绝无版本备份。临时目录与 `test_core.py` 一致，使用 `.local-data/tests`。测试数据为虚构值，不涉及真实用户库。
 
 ## Verification evidence (Claude, 2026-10-16)
 
 | Check | Command | Observed result |
 |---|---|---|
-| 新增测试 | `.\.venv\Scripts\python.exe -m unittest tests.test_logs -v` | `Ran 10 tests in 0.002s`，`OK`（首次运行 1 项失败：Authorization 二次脱敏不幂等，已在 `logs.py` 加负向前瞻修复后复跑通过） |
-| 全量测试 | `.\.venv\Scripts\python.exe -m unittest discover -s tests -v` | `Ran 121 tests in 10.543s`，`OK`（111 基线 + 10 新增） |
-| 空白检查 | `git diff --check` | 无输出，退出码 0；仅有 4 份协作文档的 `LF will be replaced by CRLF` 提示 |
-| 工作区 | `git status --short` | ` M docs/collab/HANDOFF.md`、` M docs/collab/PLAN.md`、` M docs/collab/REQUIREMENTS.md`、` M docs/collab/TASKS.md`、` M wewriter/logs.py`、`?? tests/test_logs.py` |
+| 新增测试（审查修改后复跑） | `.\.venv\Scripts\python.exe -m unittest tests.test_db_migrations -v` | `Ran 8 tests in 0.497s`，`OK`（首轮：`Ran 8 tests in 0.437s`，`OK`） |
+| 全量测试（审查修改后复跑） | `.\.venv\Scripts\python.exe -m unittest discover -s tests -v` | `Ran 129 tests in 9.948s`，`OK`（121 基线 + 8 新增；首轮 10.685s，OK） |
+| 空白检查 | `git diff --check` | 退出码 0；仅有 `HANDOFF.md`、`TASKS.md` 的 `LF will be replaced by CRLF` 提示 |
+| 工作区 | `git status --short` | ` M docs/collab/HANDOFF.md`、` M docs/collab/TASKS.md`、` M wewriter/db.py`、`?? tests/test_db_migrations.py` |
 
 ## Notes for review / residual risks
 
-- 未读取任何真实凭据、未调用外部 API、未安装依赖、未提交。
-- 字段值只匹配 `[A-Za-z0-9._~+/%=-]`；含中文、空格或其他符号的值（如 `skill_key=未配置`）不会被隐藏，这是为避免过度脱敏的有意取舍。
-- 未列入字段表的新凭据名称（如其他 `wr_*` Cookie 或自定义 token 字段）不会被识别；扩展时在 `_SECRET_FIELDS` 增加名称并在 `LEAK_CASES` 加用例即可。
-- 独立 `sk-` 值少于 16 位时不隐藏（例如 `sk-learn`）；带字段名的情况仍按字段规则隐藏。
+- 兼容性取舍：新版本写入的数据库/备份为 `user_version=2`。旧版本（v0.10.3 及以前）恢复这类备份会报“备份版本不匹配”；旧版本直接打开新库会把版本写回 1，新版本再次打开时幂等迁移会重新升到 2，不会丢数据。
+- 迁移非原子：`executescript` 会先提交，Python sqlite3 也不会为 `ALTER TABLE` 隐式开启事务。依靠步骤幂等保证中途失败后可重跑，没有在迁移前自动备份。
+- 遇到较新版本的库时，`Database()` 抛出 `ValueError`。`main.py:78` 没有捕获它，所以启动会中止，异常只经 `logs` 的 excepthook 写入日志，用户界面不会弹窗提示。如需弹窗要改 `main.py`，不在本任务获准文件内。
+- 本次未改动 `REQUIREMENTS.md`、`PLAN.md`；若需正式需求/计划记录，请人工或 Codex 补充。
+- 工作区开始时 `HANDOFF.md` 已有 Codex 未提交的修改，已保留在下方。
 
 ## Exact next action
 
-Codex 按 `PLAN.md` Phase 2 只读审查 diff 并复跑上述命令，给出“通过”或“需修改”。Claude 已停止编辑，等待审查结论。
+创建 T-002 本地提交并以普通快进推送到 GitHub `main`；不得强制推送。
 
 ---
 
-# Previous handoff — Codex → Claude
+# Previous handoff — Codex: T-001 completed / next-task discovery
+
+Updated: 2026-10-16 Australia/Sydney
+From: Codex
+To: Claude
+Status: ready for read-only discovery
 
 ## Current state
 
-- Branch/worktree: `master`，当前提交 `d8f92fa`。
-- Git status summary: 建立任务前工作区干净；Codex 本轮只修改四份 `docs/collab/` 协作文档。
-- What changed: 已定义日志脱敏需求、实现计划、文件所有权、安全边界和验收清单；尚未修改任何程序或测试代码。
-- Baseline: Python 3.13.15；111 项 unittest 已通过。
+- T-001“日志敏感信息脱敏加固”已完成、通过 Codex 只读审查并经人工验收。
+- GitHub repository: `https://github.com/tudou0655-alt/wewriter`。
+- Remote branch: `origin/main`。
+- Current local branch: `codex/t001-github`，跟踪 `origin/main`。
+- Current commit: `691ee09fab66e5a82fb0695da5e8930054799900`（`fix: harden sensitive log redaction`）。
+- `origin/main` 已指向同一提交，推送使用普通快进，没有强制覆盖。
+- 当前工作区在生成本交接文档前为干净状态。
+- 本地旧 `master` 分支属于另一套历史，保留未删除；不得在没有人工明确批准时合并、重置、删除或强推。
+
+## Completed work
+
+- `wewriter/logs.py` 增强了 API Key、Authorization、OAuth token、微信读书 Cookie、异常 traceback 和参数化日志的脱敏。
+- `tests/test_logs.py` 新增 10 项测试，覆盖 18 个泄漏场景及 11 个避免过度脱敏的反例。
+- T-001 协作需求、计划、任务状态和验收记录已经建立。
 
 ## Verification evidence
 
-| Check | Command/action | Observed result |
-|---|---|---|
-| Python version | `python --version` | `Python 3.13.15` |
-| Baseline tests | `.\.venv\Scripts\python.exe -m unittest discover -s tests -v` | `Ran 111 tests`，`OK` |
-| Baseline commit | `git log -1 --oneline` | `d8f92fa chore: establish v0.10.3 collaboration baseline` |
-| Initial worktree | `git status --short --branch` | `## master`，无改动 |
+| Check | Observed result |
+|---|---|
+| Python | 3.13.15 |
+| Log-specific tests | 10 tests, OK |
+| Full unittest suite | 121 tests, OK |
+| Diff validation | `git diff --check` passed before integration commit |
+| GitHub verification | `origin/main` and remote `refs/heads/main` both resolved to `691ee09fab66e5a82fb0695da5e8930054799900` |
 
-## Decisions and assumptions
+## Known residual risks
 
-- Claude 是 T-001 唯一实现者。
-- Claude 只能编辑 `wewriter/logs.py`、`tests/test_logs.py`、`docs/collab/TASKS.md`、`docs/collab/HANDOFF.md`，且两份协作文档仅用于规定的状态、验收和交接更新。
-- Codex 在 Claude 完成交接后仅进行只读审查，不修改文件。
-- 所有测试凭据必须明显虚构；禁止读取真实密钥文件、登录状态或环境凭据。
-- 不调用真实 API，不安装或升级依赖，不提交、不推送。
+- 日志脱敏只识别已登记的凭据字段；未来新增凭据名称时需同时扩展模式和测试。
+- 无字段名的短 `sk-` / `sess-` 字符串不会脱敏，以避免误伤普通文本。
+- 本地旧 `master` 与 GitHub `main` 没有共同提交历史，后续开发应以 `origin/main` / `codex/t001-github` 的当前历史为准，除非人工另有决定。
+- `ui.py` 与 `weread.py` 体积较大；数据库迁移仍以 `user_version=1` 和启动时补列为主。
+- 受限 Windows 环境下，测试需要将 `TEMP` / `TMP` 指向可写目录才能稳定运行。
 
-## Open risks/blockers
+## Next recommended task candidates
 
-- 当前尚无阻塞。
-- 若现有日志结构无法在四个获准文件及其限定用途内满足验收标准，Claude 必须停止并请求人工扩大范围，不得自行修改其他文件。
-- 脱敏模式需要在“避免泄漏”和“保留有效诊断信息/避免过度脱敏”之间保持边界。
+尚未批准新的实现任务。建议由人工从以下候选中选择后，再建立 T-002：
+
+1. 建立版本化 SQLite 数据库迁移机制及迁移测试。
+2. 固化 Windows/沙箱测试临时目录和统一验证入口。
+3. 加强自定义 API 地址的密钥发送警告和域名确认。
+4. 制定 `ui.py` / `weread.py` 的分阶段拆分计划；不要直接进行大规模重构。
 
 ## Exact next action
 
-Claude 先阅读 `AGENTS.md` 及四份 `docs/collab/` 事实源，检查 Git 状态，将 T-001 状态更新为 `in-progress — Claude`，然后按下列权限编辑四个文件。完成后将 T-001 改为 `review`，更新本交接文档，并停止编辑，等待 Codex 只读审查。
-
-## Files Claude may edit
-
-- `docs/collab/TASKS.md`：仅更新 T-001 状态和验收勾选。
-- `docs/collab/HANDOFF.md`：仅记录实现结果、验证证据和交接。
-- `wewriter/logs.py`：日志脱敏实现。
-- `tests/test_logs.py`：使用明显虚构凭据的单元测试。
-
-除上述文件外不得编辑其他文件。协作状态文档的编辑权限仅用于任务追踪，不扩大程序实现范围。
+Claude 只读检查当前仓库、Git 状态和上述候选，向人工提供 T-002 建议及最小文件范围、验收标准和风险。人工批准前不得修改任何文件、不得创建或删除分支、不得提交或推送。
 
 ## Prompt for Claude
 
-请执行 T-001“日志敏感信息脱敏加固”。先按 AGENTS.md 顺序阅读 `docs/collab/REQUIREMENTS.md`、`PLAN.md`、`TASKS.md`、`HANDOFF.md`，检查 Git 状态，并把 T-001 标为 `in-progress — Claude`。你只能编辑四个文件：`wewriter/logs.py` 用于程序实现，`tests/test_logs.py` 用于测试，`docs/collab/TASKS.md` 仅用于更新 T-001 状态和验收勾选，`docs/collab/HANDOFF.md` 仅用于记录实现结果、验证证据和交接；除此之外不得编辑任何文件。测试只能使用明显虚构的 API Key、Skill Key 和微信读书 Cookie，禁止读取真实凭据、调用真实 API、安装或升级依赖、提交或推送。完成实现后运行 `.\.venv\Scripts\python.exe -m unittest tests.test_logs -v`、`.\.venv\Scripts\python.exe -m unittest discover -s tests -v`、`git diff --check` 和 `git status --short`，记录实际结果；然后将任务状态改为 `review`，更新 HANDOFF.md，并停止编辑，等待 Codex 只读审查。
+请进行下一任务的只读发现。先阅读 `CLAUDE.md`、`docs/collab/REQUIREMENTS.md`、`PLAN.md`、`TASKS.md` 和本 `HANDOFF.md`，再检查 Git 状态、当前分支、`origin/main` 和相关代码，但不要修改任何文件。T-001 已在提交 `691ee09fab66e5a82fb0695da5e8930054799900` 完成并推送。请比较以下候选：版本化 SQLite 迁移、测试临时目录稳定化、自定义 API 地址安全确认、超大模块分阶段拆分。推荐一个最小 T-002，写清收益、风险、精确文件范围、测试命令和验收标准。人工批准前不要实施，不要创建或删除分支，不要提交或推送，也不要读取真实凭据或调用真实 API。

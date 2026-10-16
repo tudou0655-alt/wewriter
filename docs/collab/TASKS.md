@@ -5,6 +5,21 @@ Allowed status: `todo`, `in-progress — Codex`, `in-progress — Claude`, `revi
 | ID | Status | Owner | Scope/files | Acceptance check | Depends on |
 |---|---|---|---|---|---|
 | T-001 | done | Claude | 可编辑四个文件：`wewriter/logs.py`、`tests/test_logs.py`、`docs/collab/TASKS.md`、`docs/collab/HANDOFF.md`；后两者仅限任务追踪；Codex 后续只读审查 | 虚构凭据脱敏测试、全量 unittest、`git diff --check`、范围与安全边界审查全部通过 | 已完成 |
+| T-002 | done | Claude | 版本化 SQLite 迁移。可编辑：`wewriter/db.py`、`tests/test_db_migrations.py`、`docs/collab/TASKS.md`、`docs/collab/HANDOFF.md`；后两者仅限任务追踪；Codex 后续只读审查 | v1 库升级、重复启动幂等、旧备份恢复后升级、拒绝更新版本备份、全量 unittest、`git diff --check` | 已完成 |
+
+## T-002 acceptance checklist
+
+- [x] 开始前确认 Git 状态，并将状态改为 `in-progress — Claude`。
+- [x] 只编辑上表 T-002 列出的四个文件。
+- [x] 迁移步骤按版本号集中、有序、可重复执行；启动不再把 `user_version` 写死为 1。
+- [x] 测试覆盖：缺列的 v1 库升级、新库、重复启动幂等、恢复 v1 备份后自动升级、拒绝高于当前版本的备份、拒绝打开更新版本的库且不产生任何结构或数据变化（第 1 轮审查修改）。
+- [x] 现有数据（账号、文章、任务）在升级后保留。
+- [x] `.\.venv\Scripts\python.exe -m unittest tests.test_db_migrations -v` 通过。
+- [x] `.\.venv\Scripts\python.exe -m unittest discover -s tests -v` 在 121 项基线上增加新测试并全部通过。
+- [x] `git diff --check` 通过，`git status --short` 未显示越界文件。
+- [x] Claude 更新本文件状态为 `review` 并更新 `HANDOFF.md` 后停止编辑。
+- [x] Codex 只读复审并给出“通过”；Codex 未编辑实现文件。
+- [x] 人工确认验收通过并授权标记 `done`、本地提交及推送 GitHub。
 
 ## T-001 acceptance checklist
 

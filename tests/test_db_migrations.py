@@ -60,6 +60,22 @@ class MigrationTest(unittest.TestCase):
         self.assertIn('cleared', columns(path, 'articles'))
         self.assertIn('cleared', columns(path, 'drafts'))
         self.assertIn('error_code', columns(path, 'jobs'))
+        self.assertIn('funnel', columns(path, 'jobs'))
+
+    def test_v2_database_gains_funnel_column(self):
+        path = self.path / 'v2.sqlite'
+        make_v1(path, articles='cleared INTEGER NOT NULL DEFAULT 0', drafts='cleared INTEGER NOT NULL DEFAULT 0',
+                jobs="error_code TEXT NOT NULL DEFAULT ''")
+        with closing(sqlite3.connect(path)) as raw:
+            raw.execute('PRAGMA user_version=2')
+            raw.commit()
+        db = Database(path)
+        self.assertEqual(SCHEMA_VERSION, 3)
+        self.assert_current_schema(path)
+        self.assertEqual(db.rows('SELECT run_key, funnel FROM jobs'), [{'run_key': 'run-1', 'funnel': ''}])
+        db.update_job(db.rows('SELECT id FROM jobs')[0]['id'], funnel='{"counts": {}}')
+        Database(path)
+        self.assertEqual(db.rows('SELECT funnel FROM jobs')[0]['funnel'], '{"counts": {}}')
 
     def test_new_database_is_current(self):
         path = self.path / 'new.sqlite'

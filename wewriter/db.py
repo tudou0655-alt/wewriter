@@ -1,10 +1,15 @@
 import json
+import logging
+import os
 import shutil
 import sqlite3
-from contextlib import contextmanager
+import tempfile
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from .config import defaults, migrate
+
+logger = logging.getLogger('wewriter')
 
 
 def stamp():
@@ -74,6 +79,19 @@ def _migrate_v2(db):
 # because a database may have been partially upgraded or opened by an older release.
 MIGRATIONS = {2: _migrate_v2}
 SCHEMA_VERSION = max(MIGRATIONS)
+RESTORE_TABLES = {"accounts", "articles", "jobs", "drafts", "settings", "analyses", "draft_versions"}
+
+
+class NewerDatabaseError(ValueError):
+    """The database was written by a newer release than this one supports."""
+
+
+def _remove_sqlite_files(path):
+    for suffix in ("", "-journal", "-wal", "-shm"):
+        try:
+            Path(str(path) + suffix).unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 class Database:
@@ -90,8 +108,8 @@ class Database:
         """Refuse a database written by a newer release before anything modifies it."""
         version = db.execute("PRAGMA user_version").fetchone()[0]
         if version > SCHEMA_VERSION:
-            raise ValueError("数据库来自更新版本的软件（版本 %d，当前支持 %d），请升级软件后再打开"
-                             % (version, SCHEMA_VERSION))
+            raise NewerDatabaseError("数据库来自更新版本的软件（版本 %d，当前支持 %d），请升级软件后再打开"
+                                     % (version, SCHEMA_VERSION))
         return version
 
     @classmethod
@@ -305,28 +323,94 @@ class Database:
                 dest.close()
 
     def restore(self, source):
-        if Path(source).resolve() == self.path.resolve():
+        """Validate and migrate the backup in a sibling temp file, then atomically swap it in.
+
+        The live database is untouched unless every step succeeds.
+        """
+        source = Path(source).resolve()
+        if source == self.path.resolve():
             raise ValueError("不能从当前数据库恢复")
-        origin = sqlite3.connect(Path(source).resolve().as_uri() + "?mode=ro", uri=True)
+        fd, name = tempfile.mkstemp(prefix=self.path.name + ".restore-", suffix=".tmp", dir=self.path.parent)
+        os.close(fd)
+        staged = Path(name)
         try:
-            if origin.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                raise ValueError("备份数据库损坏")
-            version = origin.execute("PRAGMA user_version").fetchone()[0]
-            if version > SCHEMA_VERSION:
-                raise ValueError("备份来自更新版本的软件，请先升级后再恢复")
-            if version < 1:
-                raise ValueError("备份版本不匹配")
-            tables = {r[0] for r in origin.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            if not {"accounts", "articles", "jobs", "drafts", "settings", "analyses", "draft_versions"} <= tables:
-                raise ValueError("不是本软件的备份文件")
-            with self.connect() as dest:
-                origin.backup(dest)
+            self._stage_restore(source, staged)
+            self._swap_in(staged)
         finally:
-            origin.close()
-        self.recover()
-        with self.connect() as db:
-            self.migrate_schema(db)
+            _remove_sqlite_files(staged)
         self.prune_missing_images()
-        config = self.config()
-        config["schedule_enabled"] = False
-        self.save_config(config)
+
+    def _stage_restore(self, source, staged):
+        try:
+            origin = sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)
+            try:
+                if origin.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise ValueError("备份数据库损坏")
+                dest = sqlite3.connect(staged)
+                try:
+                    origin.backup(dest)
+                finally:
+                    dest.close()
+            finally:
+                origin.close()
+            with closing(sqlite3.connect(staged)) as db:
+                if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise ValueError("备份数据库损坏")
+                version = db.execute("PRAGMA user_version").fetchone()[0]
+                if version > SCHEMA_VERSION:
+                    raise NewerDatabaseError("备份来自更新版本的软件，请先升级后再恢复")
+                if version < 1:
+                    raise ValueError("备份版本不匹配")
+                tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                if not RESTORE_TABLES <= tables:
+                    raise ValueError("不是本软件的备份文件")
+        except sqlite3.Error:
+            raise ValueError("备份数据库损坏或无法读取") from None
+        try:
+            staging = object.__new__(type(self))
+            staging.path = staged
+            with staging.connect() as db:
+                self.migrate_schema(db)
+            staging.recover()
+            config = staging.config()
+            config["schedule_enabled"] = False
+            staging.save_config(config)
+            with closing(sqlite3.connect(staged)) as db:
+                ok = db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        except sqlite3.Error:
+            raise ValueError("备份升级失败，原数据未改动") from None
+        if not ok:
+            raise ValueError("备份升级后校验失败，原数据未改动")
+
+    def _swap_in(self, staged):
+        # Fold the WAL into the main file and leave WAL mode so no stale -wal/-shm
+        # can be replayed onto the restored file.
+        busy = "数据库正在被使用，无法恢复。原数据未改动，请关闭正在运行的任务后重试"
+        try:
+            with closing(sqlite3.connect(self.path, timeout=20)) as db:
+                db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                mode = db.execute("PRAGMA journal_mode=DELETE").fetchone()[0]
+        except sqlite3.Error:
+            raise ValueError(busy) from None
+        replaced = False
+        try:
+            if mode.lower() != "delete":
+                raise ValueError(busy)
+            try:
+                os.replace(staged, self.path)
+            except OSError:
+                raise ValueError("无法替换当前数据库，原数据未改动，请关闭占用数据库的程序后重试") from None
+            replaced = True
+        finally:
+            # Returning to WAL is an optimisation only: Database() enables it again on next
+            # start. A failure here must neither report a completed swap as failed nor mask
+            # the error that aborted the swap.
+            try:
+                self._enable_wal()
+            except sqlite3.Error:
+                logger.warning("恢复%s后未能切换回 WAL 模式，将在下次启动时重试",
+                               "完成" if replaced else "中止")
+
+    def _enable_wal(self):
+        with closing(sqlite3.connect(self.path, timeout=20)) as db:
+            db.execute("PRAGMA journal_mode=WAL")

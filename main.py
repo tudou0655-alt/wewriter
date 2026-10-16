@@ -1,12 +1,14 @@
 import argparse
 import json
+import logging
 import os
 from pathlib import Path
+import sqlite3
 import sys
 import tkinter as tk
 from tkinter import messagebox
 from datetime import datetime, timedelta, timezone
-from wewriter.db import Database
+from wewriter.db import Database, NewerDatabaseError
 from wewriter.secrets import Vault
 from wewriter.ui import App
 from wewriter.windows import set_app_id, single_instance
@@ -35,6 +37,30 @@ def demo_data(db):
                   "## 在工作台完成最后一步\n\n这里可以编辑标题与正文，保存版本，查看素材报告，并导出稿件。",
                   sources, "# 演示素材报告\n\n所有内容都是本地样例，用于检查界面。\n\n[S1] 示例 · 科技观察\n[S2] 示例 · 产品笔记\n\n未发生真实 API 调用。")
     db.update_job(job["id"], status="已完成", stage="完成", message="演示样例，未调用 API")
+
+
+def startup_error_message(exc):
+    """User-facing text for a database startup failure: no paths, credentials or traceback."""
+    if isinstance(exc, NewerDatabaseError):
+        return "本地数据库由更新版本的软件创建，当前版本无法打开。\n\n请安装最新版本后再启动。"
+    if isinstance(exc, sqlite3.DatabaseError) and not isinstance(exc, sqlite3.OperationalError):
+        return ("本地数据库文件无法读取，可能已损坏。\n\n"
+                "请从此前的数据库备份恢复，或联系技术支持。")
+    return ("无法打开本地数据库。\n\n"
+            "请检查磁盘空间和数据目录的读写权限，并确认没有其他程序正在占用数据库后重试。")
+
+
+def open_database(path, root):
+    """Open and recover the workspace database; on failure tell the user and close root."""
+    try:
+        db = Database(path)
+        db.recover()
+        return db
+    except Exception as exc:
+        logging.getLogger("wewriter").exception("数据库初始化失败")
+        messagebox.showerror("公众号工作台", startup_error_message(exc), parent=root)
+        root.destroy()
+        return None
 
 
 def smoke(app, root, output):
@@ -75,8 +101,9 @@ def main():
     logs.setup(base)
     from wewriter import __version__
     logs.logger.info("启动 WeWriter %s，数据目录 %s", __version__, base)
-    db = Database(base / "workspace.sqlite")
-    db.recover()
+    db = open_database(base / "workspace.sqlite", root)
+    if db is None:
+        return 1
     try:
         from wewriter.weread import cleanup_stale_profiles
         removed = cleanup_stale_profiles(base / "weread-edge-profile", older_than=600)
@@ -113,4 +140,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

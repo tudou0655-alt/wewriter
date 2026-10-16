@@ -7,18 +7,57 @@ import threading
 from pathlib import Path
 
 logger = logging.getLogger('wewriter')
-_SECRET = re.compile(r'(?i)(bearer\s+|sk-|sess-|wr_skey=|wr_rt=|wr_vid=)[A-Za-z0-9._%~+/=-]{6,}')
+MASK = '[已隐藏]'
+# Field names whose values are credentials: API/Skill keys, OAuth tokens and WeRead cookies.
+_SECRET_FIELDS = ('api[_-]?key', 'x-api-key', 'skill[_-]?key', 'access[_-]?token',
+                  'refresh[_-]?token', 'wr_skey', 'wr_rt', 'wr_vid')
+_VALUE = r'[A-Za-z0-9._~+/%=-]'
+# Each pattern keeps group 1 (the label) and masks group 2 (the value).
+_SECRET_PATTERNS = (
+    # key=value, key: value, "key": "value", URL query and Cookie pairs.
+    re.compile(r'(?i)(?<![A-Za-z0-9_-])((?:%s)["\']?\s*[:=]\s*["\']?)(%s+)'
+               % ('|'.join(_SECRET_FIELDS), _VALUE)),
+    # Generic ?key= / &token= URL parameters.
+    re.compile(r'(?i)([?&](?:key|token)=)(%s+)' % _VALUE),
+    # Authorization header with or without an auth scheme.
+    re.compile(r'(?i)(?<![A-Za-z0-9_-])(authorization["\']?\s*[:=]\s*["\']?'
+               r'(?:(?:bearer|basic|token)\s+)?)(?!(?:bearer|basic|token)\s)(%s+)' % _VALUE),
+    re.compile(r'(?i)\b(bearer\s+)(%s{6,})' % _VALUE),
+    # Bare sk-/sess- style keys; the prefix must start a token so "task-1" stays intact.
+    re.compile(r'(?<![A-Za-z0-9_-])(sk-|sess-)([A-Za-z0-9_-]{16,})'),
+)
+
+
+def redact(text):
+    """Return text with credential values replaced by MASK. Never raises."""
+    try:
+        text = str(text)
+        for pattern in _SECRET_PATTERNS:
+            text = pattern.sub(lambda m: m.group(1) + MASK, text)
+        return text
+    except Exception:
+        return MASK
 
 
 class _Redact(logging.Filter):
+    _formatter = logging.Formatter()
+
     def filter(self, record):
         try:
-            message = record.getMessage()
+            try:
+                message = record.getMessage()
+            except Exception:
+                # Bad format args: keep the template only, so logging still succeeds.
+                message = '%s（日志参数格式化失败）' % record.msg
+            record.msg, record.args = redact(message), ()
+            if record.exc_info and not record.exc_text:
+                record.exc_text = redact(self._formatter.formatException(record.exc_info))
+            elif record.exc_text:
+                record.exc_text = redact(record.exc_text)
+            if record.stack_info:
+                record.stack_info = redact(record.stack_info)
         except Exception:
-            return True
-        cleaned = _SECRET.sub(lambda m: m.group(1) + '[已隐藏]', message)
-        if cleaned != message:
-            record.msg, record.args = cleaned, ()
+            record.msg, record.args, record.exc_info, record.exc_text = MASK, (), None, None
         return True
 
 

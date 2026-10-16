@@ -8,3 +8,27 @@ dist/
 *.log
 *.spec
 !WeWriter.spec
+
+# Local secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+keys*.json
+secrets/
+
+# AI tool local settings
+.claude/settings.local.json
+
+# Local secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+keys*.json
+secrets/
+
+# AI tool local settings
+.claude/settings.local.json

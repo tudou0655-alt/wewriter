@@ -2,9 +2,11 @@
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing, nullcontext
 from pathlib import Path
+from unittest.mock import Mock, patch
 
-from wewriter.db import SCHEMA, SCHEMA_VERSION, Database
+from wewriter.db import MIGRATIONS, SCHEMA, SCHEMA_VERSION, Database, NewerDatabaseError
 
 STAMP = '2026-01-01T00:00:00+00:00'
 
@@ -140,6 +142,118 @@ class MigrationTest(unittest.TestCase):
             current.restore(backup)
         self.assertEqual([a['identifier'] for a in current.accounts()], ['current'])
         self.assertEqual(version(current.path), SCHEMA_VERSION)
+
+    def make_current(self):
+        current = Database(self.path / 'current.sqlite')
+        current.add_account('当前账号', 'current')
+        current.save_config({**current.config(), 'schedule_enabled': True})
+        return current
+
+    def snapshot(self, db):
+        with closing(sqlite3.connect(db.path)) as raw:
+            return (raw.execute('PRAGMA user_version').fetchone()[0],
+                    raw.execute('SELECT identifier FROM accounts ORDER BY id').fetchall(),
+                    raw.execute('SELECT value FROM settings ORDER BY key').fetchall(),
+                    raw.execute('SELECT type, name, sql FROM sqlite_master ORDER BY name').fetchall())
+
+    def assert_no_leftovers(self):
+        self.assertEqual(list(self.path.glob('*.restore-*')), [])
+
+    def assert_failed_restore_keeps_current(self, backup, error, fault=nullcontext):
+        current = self.make_current()
+        before = self.snapshot(current)
+        with fault(), self.assertRaises(error):
+            current.restore(backup)
+        self.assertEqual(self.snapshot(current), before)
+        self.assertTrue(current.config()['schedule_enabled'])
+        with closing(sqlite3.connect(current.path)) as raw:
+            self.assertEqual(raw.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
+            self.assertEqual(raw.execute('PRAGMA journal_mode').fetchone()[0], 'wal')
+        self.assert_no_leftovers()
+
+    def test_restore_success_swaps_atomically_and_cleans_up(self):
+        current = self.make_current()
+        backup = self.path / 'v1-backup.sqlite'
+        make_v1(backup)
+        original = backup.read_bytes()
+        current.restore(backup)
+        self.assertEqual([a['identifier'] for a in current.accounts()], ['legacy'])
+        self.assertFalse(current.config()['schedule_enabled'])
+        self.assertEqual(backup.read_bytes(), original)
+        with closing(sqlite3.connect(current.path)) as raw:
+            self.assertEqual(raw.execute('PRAGMA journal_mode').fetchone()[0], 'wal')
+        self.assert_no_leftovers()
+
+    def test_restore_rejects_corrupt_backup(self):
+        backup = self.path / 'corrupt.sqlite'
+        backup.write_bytes(b'SQLite format 3\x00' + b'\xff' * 4096)
+        self.assert_failed_restore_keeps_current(backup, ValueError)
+
+    def test_restore_rejects_incomplete_backup(self):
+        backup = self.path / 'incomplete.sqlite'
+        with closing(sqlite3.connect(backup)) as raw:
+            raw.execute('CREATE TABLE accounts (id INTEGER PRIMARY KEY)')
+            raw.execute('PRAGMA user_version=1')
+            raw.commit()
+        self.assert_failed_restore_keeps_current(backup, ValueError)
+
+    def test_restore_future_backup_keeps_current(self):
+        backup = self.path / 'future.sqlite'
+        make_v1(backup)
+        with closing(sqlite3.connect(backup)) as raw:
+            raw.execute('PRAGMA user_version=%d' % (SCHEMA_VERSION + 1))
+            raw.commit()
+        self.assert_failed_restore_keeps_current(backup, NewerDatabaseError)
+
+    def test_restore_migration_failure_keeps_current(self):
+        backup = self.path / 'v1-backup.sqlite'
+        make_v1(backup)
+        failing = Mock(side_effect=sqlite3.OperationalError('injected migration failure'))
+        self.assert_failed_restore_keeps_current(
+            backup, ValueError, lambda: patch.dict(MIGRATIONS, {2: failing}))
+        failing.assert_called_once()
+
+    def test_restore_replace_failure_keeps_current(self):
+        backup = self.path / 'v1-backup.sqlite'
+        make_v1(backup)
+        replace = Mock(side_effect=PermissionError(13, 'injected replace failure'))
+        self.assert_failed_restore_keeps_current(
+            backup, ValueError, lambda: patch('wewriter.db.os.replace', replace))
+        replace.assert_called_once()
+
+    def test_restore_succeeds_when_wal_fails_after_replace(self):
+        current = self.make_current()
+        backup = self.path / 'v1-backup.sqlite'
+        make_v1(backup)
+        wal = Mock(side_effect=sqlite3.OperationalError('injected WAL failure'))
+        with patch.object(Database, '_enable_wal', wal), self.assertLogs('wewriter', 'WARNING') as logs:
+            current.restore(backup)
+        wal.assert_called_once()
+        self.assertIn('恢复完成后未能切换回 WAL 模式', logs.output[0])
+        self.assertEqual([a['identifier'] for a in current.accounts()], ['legacy'])
+        self.assertFalse(current.config()['schedule_enabled'])
+        self.assertEqual(version(current.path), SCHEMA_VERSION)
+        self.assert_no_leftovers()
+        with closing(sqlite3.connect(current.path)) as raw:
+            self.assertEqual(raw.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
+            self.assertEqual(raw.execute('PRAGMA journal_mode').fetchone()[0], 'delete')
+        Database(current.path)
+        with closing(sqlite3.connect(current.path)) as raw:
+            self.assertEqual(raw.execute('PRAGMA journal_mode').fetchone()[0], 'wal')
+
+    def test_wal_failure_does_not_mask_replace_failure(self):
+        current = self.make_current()
+        before = self.snapshot(current)
+        backup = self.path / 'v1-backup.sqlite'
+        make_v1(backup)
+        with patch('wewriter.db.os.replace', side_effect=PermissionError(13, 'injected replace failure')), \
+                patch.object(Database, '_enable_wal', side_effect=sqlite3.OperationalError('injected WAL failure')), \
+                self.assertLogs('wewriter', 'WARNING') as logs, \
+                self.assertRaisesRegex(ValueError, '无法替换当前数据库'):
+            current.restore(backup)
+        self.assertIn('恢复中止后未能切换回 WAL 模式', logs.output[0])
+        self.assertEqual(self.snapshot(current), before)
+        self.assert_no_leftovers()
 
     def test_restore_rejects_unversioned_backup(self):
         current = Database(self.path / 'current.sqlite')

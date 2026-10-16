@@ -18,7 +18,7 @@ from .api import ApiError, Cancelled, EveryInfra, Model, Transport, digest, pars
 from .config import validate, migrate
 from .db import stamp
 from .hotspots import count, rank
-from .logs import logger
+from .logs import logger, redact
 
 
 class ErrorCode:
@@ -60,6 +60,159 @@ def error_code(exc):
 
 FINISHED = ("已完成", "无新文章", "已清理")
 
+# Collection funnel layers. Every listed article ends in exactly one of the keys
+# below its parent: returned = deleted + out_of_window + invalid + cleared_blocked
+# + repeated + candidates; candidates = below_threshold + used + over_limit + queued.
+COLLECT_KEYS = ('returned', 'deleted', 'out_of_window', 'invalid', 'cleared_blocked', 'repeated',
+                'candidates', 'below_threshold', 'used', 'over_limit', 'queued')
+# Each article taken from the queue ends in exactly one of these.
+MATERIAL_KEYS = ('material_cleared', 'body_failed', 'image_only', 'duplicate_body', 'usable')
+FUNNEL_LABELS = {
+    'returned': '接口返回', 'deleted': '已删除', 'out_of_window': '超出时间范围', 'invalid': '条目无效',
+    'cleared_blocked': '已清理且不允许重采', 'repeated': '重复条目（已计入其他位置）', 'candidates': '合格候选',
+    'below_threshold': '未达热度门槛（含无阅读量）', 'used': '已用于既有稿件', 'over_limit': '超出单次篇数上限',
+    'queued': '进入处理队列', 'material_cleared': '原素材已清理', 'body_failed': '正文获取或摘要失败',
+    'image_only': '图片型跳过', 'duplicate_body': '正文重复', 'usable': '可用素材',
+}
+
+
+class Funnel:
+    """Structured funnel of the current attempt, persisted as ``jobs.funnel`` JSON.
+
+    Observability only: it records outcomes, it never influences selection.
+    """
+
+    def __init__(self, db, job_id, data):
+        self.db, self.job_id, self.data = db, job_id, data
+
+    @staticmethod
+    def empty():
+        # accounts: unique account key -> {name, identifier, status, error, counts}
+        # owners: article id -> account key that listed it; outcomes: article id -> material key
+        return {'version': 2, 'collection': None, 'counts': {k: 0 for k in COLLECT_KEYS + MATERIAL_KEYS},
+                'drafts': 0, 'accounts': {}, 'owners': {}, 'outcomes': {}}
+
+    @classmethod
+    def for_attempt(cls, db, job, reuse_collection):
+        """Start a fresh funnel. A retry that reuses the stored selection keeps the
+        collection layers of the attempt that produced it; nothing is accumulated."""
+        data = cls.empty()
+        previous = load_funnel(job.get('funnel')) if reuse_collection else None
+        if previous and previous.get('collection'):
+            data['collection'] = {**previous['collection'], 'reused': True}
+            data['counts'].update({k: previous['counts'].get(k, 0) for k in COLLECT_KEYS})
+            for key, account in previous['accounts'].items():
+                data['accounts'][key] = {
+                    'name': account.get('name', key), 'identifier': account.get('identifier', ''),
+                    'status': account.get('status', 'ok'), 'error': account.get('error', ''),
+                    'counts': {k: v for k, v in account.get('counts', {}).items() if k in COLLECT_KEYS}}
+            data['owners'] = dict(previous.get('owners', {}))
+        funnel = cls(db, job['id'], data)
+        funnel.save()
+        return funnel
+
+    def account(self, key, name=None, identifier=''):
+        return self.data['accounts'].setdefault(
+            key, {'name': name or key, 'identifier': identifier, 'status': 'ok', 'error': '', 'counts': {}})
+
+    def add(self, key, account=None, n=1):
+        if n <= 0:
+            return
+        counts = self.data['counts']
+        counts[key] = counts.get(key, 0) + n
+        if account is not None:
+            counts = self.account(account)['counts']
+            counts[key] = counts.get(key, 0) + n
+
+    def article_account(self, article):
+        """Key of the account that listed the article; articles without a recorded owner
+        (e.g. a batch child or rewrite) fall back to the stored account name."""
+        key = self.data.setdefault('owners', {}).get(str(article['id']))
+        if key is None:
+            key = 'name:' + article['account_name']
+            self.account(key, article['account_name'])
+        return key
+
+    def material(self, key, article):
+        """Record the single material outcome of one queued article and persist it."""
+        self.add(key, self.article_account(article))
+        self.data.setdefault('outcomes', {})[str(article['id'])] = key
+        self.save()
+
+    def fail_account(self, name, exc):
+        account = self.account(name)
+        account['status'], account['error'] = 'failed', redact(str(exc))[:200]
+        self.data['collection']['accounts_failed'] += 1
+
+    def save(self):
+        self.db.update_job(self.job_id, funnel=json.dumps(self.data, ensure_ascii=False))
+
+
+def load_funnel(raw):
+    try:
+        data = json.loads(raw) if raw else None
+    except (TypeError, ValueError):
+        return None
+    return data if isinstance(data, dict) and isinstance(data.get('counts'), dict) else None
+
+
+def format_funnel(raw):
+    """Readable Chinese funnel for the run-record detail window."""
+    data = load_funnel(raw)
+    if not data:
+        return '该历史任务没有采集统计'
+    c = data['counts']
+    collection = data.get('collection')
+
+    def reasons(counts, keys):
+        return [f'{FUNNEL_LABELS[k]} {counts[k]}' for k in keys if counts.get(k)]
+
+    lines = []
+    if collection:
+        lines.append(f"结果：扫描 {collection['accounts_enabled']} 个启用公众号"
+                     f"（成功 {collection['accounts_ok']}，失败 {collection['accounts_failed']}），"
+                     f"接口共返回 {c['returned']} 篇；合格候选 {c['candidates']} 篇，进入处理队列 {c['queued']} 篇，"
+                     f"最终可用素材 {c['usable']} 篇，完成稿件 {data['drafts']} 篇。")
+        if collection.get('reused'):
+            lines.append('（本次重试沿用上次采集的选文，采集部分为当时的统计；素材与稿件为本次结果。）')
+    else:
+        lines.append(f"结果：本任务沿用已保存的选文，没有本次采集统计；最终可用素材 {c['usable']} 篇，"
+                     f"完成稿件 {data['drafts']} 篇。")
+    lines.append('')
+    lines.append('全局阶段：')
+    if collection:
+        lines.append(f"- 接口返回：{c['returned']}")
+        lines += ['  - 排除：' + r for r in reasons(c, COLLECT_KEYS[1:6])]
+        lines.append(f"- 合格候选：{c['candidates']}")
+        lines += ['  - 排除：' + r for r in reasons(c, ('below_threshold', 'used', 'over_limit'))]
+        lines.append(f"- 进入处理队列：{c['queued']}")
+    lines += ['  - 排除：' + r for r in reasons(c, MATERIAL_KEYS[:-1])]
+    lines.append(f"- 可用素材：{c['usable']}")
+    lines.append(f"- 完成稿件：{data['drafts']}")
+    if data['accounts']:
+        lines.append('')
+        lines.append('各公众号：')
+        names = [a.get('name', k) for k, a in data['accounts'].items()]
+        for key, account in data['accounts'].items():
+            name = account.get('name', key)
+            if names.count(name) > 1 and account.get('identifier'):
+                name += f"（{account['identifier']}）"
+            ac = account.get('counts', {})
+            if account.get('status') == 'failed':
+                lines.append(f"- {name}：采集失败，{account.get('error') or '原因未知'}")
+                continue
+            parts = []
+            if collection:
+                parts.append(f"返回 {ac.get('returned', 0)} 篇，进入候选 {ac.get('candidates', 0)} 篇，"
+                             f"进入处理队列 {ac.get('queued', 0)} 篇")
+            parts.append(f"可用素材 {ac.get('usable', 0)} 篇")
+            skipped = reasons(ac, tuple(k for k in COLLECT_KEYS + MATERIAL_KEYS
+                                        if k not in ('returned', 'candidates', 'queued', 'usable')))
+            if skipped:
+                parts.append('跳过：' + '、'.join(skipped))
+            lines.append(f"- {name}：" + '；'.join(parts))
+    return '\n'.join(lines)
+
 
 class _Run:
     """Per-execution state shared by the stages of one job."""
@@ -69,6 +222,7 @@ class _Run:
         self.transport, self.source = transport, source
         self.warnings = []
         self._models = {}
+        self.funnel = None
 
     @property
     def db(self):
@@ -152,10 +306,13 @@ class Engine:
                 return "已完成"
             # A retry is a new attempt: previous warnings stay in history only.
             self.db.update_job(job["id"], status="运行中", message="正在准备任务", warnings="[]", error_code='')
+            # Likewise the funnel describes this attempt only and is rebuilt, never summed.
+            funnel = Funnel.for_attempt(self.db, job, reuse_collection=bool(json.loads(job["selected"])))
             transport = Transport(self.cancel)
             if source is None:
                 source = self._open_source(transport)
             ctx = _Run(self, job, config, transport, source)
+            ctx.funnel = funnel
             # Resolve both models up front so a missing API key fails before
             # any paid collection or summarising work is done.
             ctx.summarizer, ctx.writer
@@ -224,17 +381,26 @@ class Engine:
         now = datetime.fromisoformat(job["created_at"])
         earliest = now - timedelta(hours=config["lookback_hours"])
         candidates, successes, recollect = {}, 0, set()
+        funnel, owner = ctx.funnel, {}
+        collection = {'reused': False, 'accounts_enabled': len(accounts), 'accounts_ok': 0, 'accounts_failed': 0}
+        funnel.data['collection'] = collection
         for account in accounts:
             self.check()
+            who = 'acct:' + account['identifier']
+            funnel.account(who, account['name'], account['identifier'])
             self.notify(f"正在同步：{account['name']}")
             try:
                 items = ctx.source.articles(account["identifier"], config["per_account_limit"])
                 successes += 1
+                collection['accounts_ok'] += 1
             except ApiError as exc:
+                funnel.fail_account(who, exc)
+                funnel.save()
                 if exc.fatal:
                     raise
                 ctx.warn(f"{account['name']}：{exc}")
                 continue
+            funnel.add('returned', who, len(items))
             if len(items) >= config["per_account_limit"]:
                 ctx.warn(f"{account['name']} 返回条数达到单账号上限，时间窗内可能仍有未覆盖文章")
             for item in items:
@@ -245,9 +411,11 @@ class Engine:
                     if item.get('collection_warning'):
                         ctx.warn(f"{account['name']}：{item['collection_warning']}")
                     if item.get("is_deleted") in (True, 1, "true"):
+                        funnel.add('deleted', who)
                         continue
                     published = parse_date(item.get("posted_at"))
                     if not earliest <= published <= now:
+                        funnel.add('out_of_window', who)
                         continue
                     url = wechat_url(item.get("url", ""))
                     title = str(item.get("title") or "").strip()
@@ -257,6 +425,7 @@ class Engine:
                         "title": title, "url": url, "published_at": published.isoformat()})
                     if db.rows('SELECT cleared FROM articles WHERE id=?', (article_id,))[0]['cleared']:
                         if not config.get('allow_recollect_cleared', False):
+                            funnel.add('cleared_blocked', who)
                             continue
                         recollect.add(article_id)
                     reads, likes = count(item.get('read_count')), count(item.get('like_count'))
@@ -265,9 +434,16 @@ class Engine:
                                (article_id, reads, likes, observed))
                     db.execute('INSERT OR REPLACE INTO job_metrics VALUES(?,?,?,?,?)',
                                (job['id'], article_id, reads, likes, observed))
+                    if article_id in candidates:
+                        funnel.add('repeated', who)
+                    else:
+                        funnel.add('candidates', who)
+                        owner[article_id] = who
                     candidates[article_id] = {'published': published, 'reads': reads, 'likes': likes}
                 except (ValueError, OverflowError, OSError):
+                    funnel.add('invalid', who)
                     ctx.warn(f"{account['name']}：一条文章的标题、URL 或发布时间无效，已跳过")
+            funnel.save()
         if not successes:
             raise TaskError("所有公众号采集失败；" + (ctx.warnings[0] if ctx.warnings else "请检查登录或接口配置"),
                             ErrorCode.COLLECT)
@@ -281,6 +457,18 @@ class Engine:
         # Independent writing keeps the full ranked queue so a failed top
         # article can be replaced by the next one without recollecting.
         selected = available if separate else available[:config['article_limit']]
+        layers = (set(eligible), set(available), set(selected))
+        for article_id, who in owner.items():
+            funnel.data['owners'][str(article_id)] = who
+            if article_id not in layers[0]:
+                funnel.add('below_threshold', who)
+            elif article_id not in layers[1]:
+                funnel.add('used', who)
+            elif article_id not in layers[2]:
+                funnel.add('over_limit', who)
+            else:
+                funnel.add('queued', who)
+        funnel.save()
         if config.get('selection_mode') == 'hot' and candidates and not eligible:
             raise TaskError('没有达到阅读量门槛的文章，或接口未提供阅读量；请查看文章库，调整门槛或时间范围',
                             ErrorCode.CONFIG)
@@ -308,6 +496,7 @@ class Engine:
                 db.execute('UPDATE articles SET cleared=0 WHERE id=?', (article_id,))
                 article['cleared'] = 0
             if article['cleared']:
+                ctx.funnel.material('material_cleared', article)
                 ctx.warn(f"{article['title']}：原素材已清理，无法继续处理")
                 continue
             self.notify(f"处理素材 {number}/{len(selected)}：{article['title']}")
@@ -318,6 +507,7 @@ class Engine:
                 db.execute("UPDATE articles SET content=?,content_hash=?,error='' WHERE id=?",
                            (content, content_hash, article_id))
                 if content_hash in hashes:
+                    ctx.funnel.material('duplicate_body', article)
                     ctx.warn(f"{article['title']}：正文与其他素材相同，已去重")
                     continue
                 hashes.add(content_hash)
@@ -329,9 +519,11 @@ class Engine:
                                 "published_at": article["published_at"], "analysis": parts,
                                 "metrics": metrics[0] if metrics else {},
                                 "image_analysis": image_analysis})
+                ctx.funnel.material('usable', article)
             except ApiError as exc:
                 if exc.fatal:
                     raise
+                ctx.funnel.material('image_only' if exc.kind == 'image_only' else 'body_failed', article)
                 db.execute("UPDATE articles SET error=? WHERE id=?", (str(exc), article_id))
                 ctx.warn(f"{article['title']}：{exc}")
         return sources
@@ -489,6 +681,8 @@ class Engine:
         if research:
             sources += research['sources']
         self.db.save_draft(job["id"], output["title"], output["body"], sources, report)
+        ctx.funnel.data['drafts'] = 1
+        ctx.funnel.save()
         status = "部分完成" if ctx.warnings else "已完成"
         self.db.update_job(job["id"], stage="完成", status=status, error_code='',
                            message=f"已生成 1 篇草稿，使用 {len(sources)} 篇素材，请人工审核")
@@ -550,6 +744,31 @@ class Engine:
         status = '已完成' if done >= target else ('部分完成' if done else '失败')
         self.db.update_job(parent_id, status=status, error_code='',
                            message=f'已生成 {min(done, target)}/{target} 篇独立主题文章（含单篇重试结果）')
+        self._fold_children(parent_id, done)
+
+    def _fold_children(self, parent_id, drafts):
+        """Batch funnel: material layers are the sum of each child article's latest attempt."""
+        rows = self.db.rows('SELECT funnel FROM jobs WHERE id=?', (parent_id,))
+        data = load_funnel(rows[0]['funnel']) if rows else None
+        if data is None:
+            return
+        for key in MATERIAL_KEYS:
+            data['counts'][key] = 0
+        for account in data['accounts'].values():
+            for key in MATERIAL_KEYS:
+                account['counts'].pop(key, None)
+        data['outcomes'] = {}
+        funnel = Funnel(self.db, parent_id, data)
+        for row in self.db.rows("""SELECT j.funnel FROM jobs j JOIN batch_items b ON b.child_job_id=j.id
+                                   WHERE b.parent_job_id=?""", (parent_id,)):
+            child = load_funnel(row['funnel'])
+            for article_id, outcome in (child or {}).get('outcomes', {}).items():
+                article = self.db.rows('SELECT id, account_name FROM articles WHERE id=?', (int(article_id),))
+                if article and outcome in MATERIAL_KEYS:
+                    funnel.add(outcome, funnel.article_account(article[0]))
+                    data['outcomes'][article_id] = outcome
+        data['drafts'] = drafts
+        funnel.save()
 
     def _batch_queue(self, job, config, selected):
         """Ranked article queue: the stored choices first, then ranked backups."""
@@ -640,5 +859,6 @@ class Engine:
         self.db.update_job(job['id'], status=status, stage='完成', message=message,
                            error_code='' if done else last_code,
                            warnings=json.dumps(failures, ensure_ascii=False))
+        self._fold_children(job['id'], done)
         self.notify(message)
         return status

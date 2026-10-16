@@ -75,9 +75,14 @@ def _migrate_v2(db):
     _add_column(db, 'jobs', 'error_code', "TEXT NOT NULL DEFAULT ''")
 
 
+def _migrate_v3(db):
+    # Structured collection funnel of the latest attempt (JSON, see engine.Funnel); '' = none.
+    _add_column(db, 'jobs', 'funnel', "TEXT NOT NULL DEFAULT ''")
+
+
 # MIGRATIONS[n] upgrades a version n-1 database to version n. Steps must be idempotent,
 # because a database may have been partially upgraded or opened by an older release.
-MIGRATIONS = {2: _migrate_v2}
+MIGRATIONS = {2: _migrate_v2, 3: _migrate_v3}
 SCHEMA_VERSION = max(MIGRATIONS)
 RESTORE_TABLES = {"accounts", "articles", "jobs", "drafts", "settings", "analyses", "draft_versions"}
 
@@ -282,7 +287,7 @@ class Database:
             return dict(db.execute("SELECT * FROM jobs WHERE run_key=?", (run_key,)).fetchone())
 
     def update_job(self, job_id, **fields):
-        allowed = {"status", "stage", "selected", "warnings", "message", "error_code"}
+        allowed = {"status", "stage", "selected", "warnings", "message", "error_code", "funnel"}
         if not fields or not set(fields).issubset(allowed):
             raise ValueError("无效任务字段")
         fields["updated_at"] = stamp()

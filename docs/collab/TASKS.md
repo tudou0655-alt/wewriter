@@ -7,6 +7,34 @@ Allowed status: `todo`, `in-progress — Codex`, `in-progress — Claude`, `revi
 | T-001 | done | Claude | 可编辑四个文件：`wewriter/logs.py`、`tests/test_logs.py`、`docs/collab/TASKS.md`、`docs/collab/HANDOFF.md`；后两者仅限任务追踪；Codex 后续只读审查 | 虚构凭据脱敏测试、全量 unittest、`git diff --check`、范围与安全边界审查全部通过 | 已完成 |
 | T-002 | done | Claude | 版本化 SQLite 迁移。可编辑：`wewriter/db.py`、`tests/test_db_migrations.py`、`docs/collab/TASKS.md`、`docs/collab/HANDOFF.md`；后两者仅限任务追踪；Codex 后续只读审查 | v1 库升级、重复启动幂等、旧备份恢复后升级、拒绝更新版本备份、全量 unittest、`git diff --check` | 已完成 |
 | T-003 | done | Claude | 交付前可靠性收敛。仅可编辑：`main.py`、`wewriter/db.py`、`tests/test_db_migrations.py`、`tests/test_startup.py`、`scripts/verify_delivery.py`、`tests/test_delivery.py`、`docs/交付验收清单.md`、`docs/collab/TASKS.md`、`docs/collab/HANDOFF.md`；后两份协作文档仅限更新 T-003 状态、验收勾选、实现证据与交接 | 启动失败可操作提示、数据库原子恢复、离线交付检查、专项及全量测试、范围与安全边界检查全部通过；Claude 完成全部工作后由 Codex 一次性只读审查 | 已完成 |
+| T-004 | done | Codex | 使用现有 `scripts/build.ps1` 生成本地 Windows 测试包；仅可更新 `docs/collab/TASKS.md`、`docs/collab/HANDOFF.md`，以及生成被 Git 忽略的 `build/`、`dist/` 构建产物 | 构建退出码 0；EXE、安装脚本、README 和 ZIP 存在；ZIP 内容正确；记录大小与校验值；不安装依赖、不提交、不推送 | 已完成 |
+| T-005 | done | Claude | 采集漏斗与跳过原因可视化。仅可编辑：`wewriter/db.py`、`wewriter/engine.py`、`wewriter/ui.py`、`tests/test_db_migrations.py`、`tests/test_collection_funnel.py`、`docs/collab/TASKS.md`、`docs/collab/HANDOFF.md`；后两份文档仅限 T-005 追踪与交接 | 每个公众号及全局采集数量可解释；时间、已使用、无效、清理、热度、正文失败、图片型和重复正文等原因可见；数据持久化、迁移、重试和 UI 展示有测试；全量测试通过 | T-004 |
+
+## T-005 acceptance checklist
+
+- [x] Claude 开始前检查 Git 状态，保留 Codex 尚未提交的 T-004 文档修改，并将 T-005 状态改为 `in-progress — Claude`。
+- [x] 只编辑 T-005 行列出的七个文件；不得覆盖或删除 T-004 的构建记录。
+- [x] 为每次任务持久化结构化采集漏斗，不把统计混入配置快照或普通警告文本；如新增数据库字段，使用下一顺序版本的幂等迁移。
+- [x] 全局至少显示：启用公众号数、成功/失败公众号数、接口返回数、时间范围外、已删除、无效条目、已清理且禁止重采、合格候选、已用于既有稿件、热度门槛淘汰、进入处理队列、正文获取失败、图片型跳过、正文重复、最终可用素材和完成稿件数。
+- [x] 每个公众号至少显示：接口返回数、进入候选数和主要跳过原因；公众号采集失败时显示脱敏后的可操作原因。
+- [x] 同一条文章在同一漏斗层级只计一次；全局汇总与逐公众号数据可核对，不用“扫描公众号数”冒充“返回文章数”。
+- [x] 运行记录详情用易读中文分段展示漏斗；没有统计的旧任务仍能正常打开，并显示“该历史任务没有采集统计”。
+- [x] 重试同一任务时重置并重建本次漏斗，不累加上次结果；任务中断或失败时保留截至失败点的统计。
+- [x] 不改变现有选文、去重、采集、计费或生成行为；不新增网络请求，不记录正文、Cookie、API Key 或其他敏感值。
+- [x] 测试覆盖：两个公众号只有一篇最终可用、公众号采集失败、时间范围过滤、已使用过滤、热度过滤、正文失败/图片型、正文重复、旧数据库迁移、旧任务无统计、重试不累加。
+- [x] `.\.venv\Scripts\python.exe -m unittest tests.test_collection_funnel tests.test_db_migrations -v` 通过。
+- [x] `.\.venv\Scripts\python.exe -m unittest discover -s tests -v` 全部通过。
+- [x] `git diff --check` 通过，`git status --short` 仅显示 T-004 已有两份文档修改和 T-005 获准文件。
+- [x] Claude 完成后将 T-005 状态改为 `review`，更新 `HANDOFF.md` 并停止编辑；Codex 后续只读审查。
+
+## T-004 acceptance checklist
+
+- [x] 开始前确认 Git 工作区干净，当前提交与 `origin/main` 一致。
+- [x] 使用现有 `scripts/build.ps1` 完成构建，不修改程序代码或构建配置。
+- [x] `dist\v0.10.3\WeWriter.exe`、`install.ps1`、`README.md` 以及 `dist\WeWriter-v0.10.3-Windows.zip` 存在。
+- [x] ZIP 仅包含预期的三个交付文件，生成文件大小和 SHA-256 已记录。
+- [x] 不安装或升级依赖，不读取凭据，不运行真实 API，不提交、不推送。
+- [x] 更新 `HANDOFF.md`，如实记录构建结果、测试限制和用户下一步。
 
 ## T-003 acceptance checklist
 

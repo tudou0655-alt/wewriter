@@ -16,7 +16,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from .api import ApiError, Model, Transport
 from .config import due_key, validate
-from .engine import Engine
+from .engine import Engine, format_funnel
 from .logs import logger
 from .windows import startup_enabled, set_startup
 
@@ -802,7 +802,8 @@ class App:
             job = self.db.rows("SELECT * FROM jobs WHERE id=?", (self.selection(tree),))[0]
             hint = ERROR_HINTS.get(job.get('error_code') or '', '')
             self.text_window("任务详情", f"任务 #{job['id']}\n状态：{job['status']}\n阶段：{job['stage']}\n{job['message']}\n" +
-                             (f"\n处理建议：{hint}\n" if hint else '') + "\n警告：\n" +
+                             (f"\n处理建议：{hint}\n" if hint else '') +
+                             "\n采集漏斗：\n" + format_funnel(job.get('funnel')) + "\n\n警告：\n" +
                              "\n".join(json.loads(job["warnings"])) + "\n\n配置快照（不含密钥）：\n" + json.dumps(json.loads(job["config"]), ensure_ascii=False, indent=2))
         self.button(row, "重试所选任务", retry, True)
         self.button(row, "查看详情", detail)

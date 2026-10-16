@@ -16,6 +16,20 @@ Status: `done`，Codex 最终只读复审通过，人工已确认验收
 - Codex 独立复跑专项测试 30 项、全量测试 161 项及离线交付检查 6 项，全部通过；`git diff --check` 通过，变更范围符合 T-005 获准的七个文件。
 - 人工已确认 T-005 验收完成，并授权创建本地提交、普通推送 GitHub，以及重新构建 Windows 客户测试包。
 
+## 最终提交与测试包
+
+- T-005 实现提交为 `96fca79`（`feat: add collection funnel diagnostics`），已普通推送到 GitHub `main`。
+- 使用 `scripts/build.ps1` 从该提交重新构建成功；PyInstaller 6.22.3、Python 3.13.15、Windows 11。
+- 打包后离线 smoke 退出码为 0，`ok: true`，概览、公众号管理、文章资料库、稿件工作台、运行记录、设置六个页面全部通过。
+- ZIP 内容正好为 `WeWriter.exe`、`install.ps1`、`README.md`；EXE 未做 Authenticode 签名。
+
+| 文件 | 字节 | SHA-256 |
+|---|---:|---|
+| `dist\\v0.10.3\\WeWriter.exe` | 61,844,233 | `68000D3240363BD9F7E18F621BCFDD3E9A50CF2C4EB053D79DF865DB33AA8291` |
+| `dist\\v0.10.3\\install.ps1` | 1,059 | `D8CAD4097BCD33F3EC8571BB3772E45B9210F31B3C62011D307E66ED2220F702` |
+| `dist\\v0.10.3\\README.md` | 20,948 | `A66C8BCBE2705246BDE76D1F392A86838E02783E8EFCEFCF0DA4C5043F3536D1` |
+| `dist\\WeWriter-v0.10.3-Windows.zip` | 61,267,929 | `35C0CFECD6B94A9EFCFF4EA52CDFE85CB95715EA3D84AB4E50CEC84DAD65E08B` |
+
 ## 开始前状态
 
 - 分支 `codex/t001-github`，HEAD `b26971e`（`feat: harden delivery reliability`）。工作区只有 Codex 未提交的 T-004/T-005 立项修改（`TASKS.md`、`HANDOFF.md`），已保留；本文件下方的 Codex 立项说明和 T-004/T-003 记录原样保留。

@@ -119,6 +119,18 @@ class Backend:
         self.current_job_id = job['id']
         self.start_worker(lambda: self.engine.run(job['run_key'], config))
 
+    # Display preferences live beside the database, not in the task config, so changing the
+    # look never touches a frozen task configuration.
+    def ui_prefs(self):
+        try:
+            return json.loads((Path(self.data_dir) / 'ui.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            return {}
+
+    def save_ui_prefs(self, **values):
+        prefs = {**self.ui_prefs(), **values}
+        (Path(self.data_dir) / 'ui.json').write_text(json.dumps(prefs, ensure_ascii=False), encoding='utf-8')
+
     def queued(self):
         return self.db.rows("SELECT * FROM jobs WHERE status='等待中' AND stage='排队中' ORDER BY id")
 
@@ -199,7 +211,14 @@ class Api:
     @_safe
     def meta(self):
         return {'version': version_text(), 'demo': self._b.demo, 'busy': self._b.busy,
-                'message': self._b.last_message}
+                'message': self._b.last_message, 'theme': self._b.ui_prefs().get('theme', 'system')}
+
+    @_safe
+    def ui_theme(self, theme):
+        if theme not in ('system', 'light', 'dark'):
+            raise ValueError('外观选项无效')
+        self._b.save_ui_prefs(theme=theme)
+        return {}
 
     # ------------------------------------------------------------ workbench
     def _job_summary(self, job):

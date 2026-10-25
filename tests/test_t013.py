@@ -176,3 +176,23 @@ class RewriteDetailTest(unittest.TestCase):
             self.assertTrue(detail['title'].startswith('再写一篇'))
         finally:
             f.tearDown()
+
+
+class ThemePreferenceTest(unittest.TestCase):
+    def test_theme_is_saved_beside_the_database_and_validated(self):
+        import tempfile
+        from pathlib import Path
+        import test_core
+        from wewriter import webapp
+        f = test_core.CoreTest(); f.setUp()
+        try:
+            data = Path(tempfile.mkdtemp())
+            api = webapp.Api(webapp.Backend(f.db, test_core.FakeVault(), data, demo=False))
+            self.assertEqual(api.meta()['theme'], 'system')
+            self.assertTrue(api.ui_theme('light')['ok'])
+            self.assertEqual(api.meta()['theme'], 'light')
+            self.assertFalse(api.ui_theme('pink')['ok'])
+            self.assertEqual(json.loads((data / 'ui.json').read_text(encoding='utf-8')), {'theme': 'light'})
+            self.assertNotIn('theme', f.db.config())
+        finally:
+            f.tearDown()

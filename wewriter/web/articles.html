@@ -10,7 +10,7 @@ try { var t = sessionStorage.getItem('theme'); if (t === 'light' || t === 'dark'
 /* Page changes cross-fade instead of blanking; the sidebar is matched so it stays put. */
 @view-transition { navigation: auto; }
 .rail { view-transition-name: rail; }
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: .16s; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .1s; }
 ::view-transition-group(rail) { animation-duration: 0s; }
 @media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
 </style>

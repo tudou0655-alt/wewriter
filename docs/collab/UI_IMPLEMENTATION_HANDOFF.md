@@ -15,11 +15,11 @@
 
 | 页面 | 视觉与交互参考 |
 |---|---|
-| 工作台与历史任务 | [wewriter-home.html](ui-prototypes/wewriter-home.html) |
-| 公众号管理与扫码同步 | [wewriter-accounts.html](ui-prototypes/wewriter-accounts.html) |
-| 文章库 | [wewriter-articles.html](ui-prototypes/wewriter-articles.html) |
-| 稿件库 | [wewriter-drafts.html](ui-prototypes/wewriter-drafts.html) |
-| 设置 | [wewriter-settings.html](ui-prototypes/wewriter-settings.html) |
+| 工作台与历史任务 | `wewriter-home.html`（原型已删除，见 Git 历史） |
+| 公众号管理与扫码同步 | `wewriter-accounts.html`（原型已删除，见 Git 历史） |
+| 文章库 | `wewriter-articles.html`（原型已删除，见 Git 历史） |
+| 稿件库 | `wewriter-drafts.html`（原型已删除，见 Git 历史） |
+| 设置 | `wewriter-settings.html`（原型已删除，见 Git 历史） |
 
 原型是设计参考，所有数量、时间、标题、连接状态、模型选项和密钥占位均为示例。不可照搬示例到真实功能，不可用原型脚本代替数据库、配置或服务实现。原型中的模拟扫码、导出提示、选择目录占位须替换为真实流程；侧栏需能真实切换页面。无需引入网页框架：当前 `wewriter/ui.py` 使用 Tkinter/ttk，应优先在现有技术栈实现近似视觉与同等交互，保留 EXE 兼容性。
 

@@ -196,3 +196,47 @@ class ThemePreferenceTest(unittest.TestCase):
             self.assertNotIn('theme', f.db.config())
         finally:
             f.tearDown()
+
+
+class DialogFilterTest(unittest.TestCase):
+    """2026-10-25: every export failed because pywebview rejected the dialog filter text."""
+
+    def test_every_dialog_filter_is_accepted_by_pywebview(self):
+        from webview.util import parse_file_type
+        from wewriter import webapp
+        from wewriter.ui import EXPORT_FORMATS
+        self.assertEqual(set(webapp.DIALOG_FILTERS), set(EXPORT_FORMATS))
+        for fmt, text in webapp.DIALOG_FILTERS.items():
+            self.assertEqual(parse_file_type(text)[1], f'*.{fmt}')
+        parse_file_type(webapp.BACKUP_FILTER)
+
+    def test_export_passes_a_valid_filter_to_the_save_dialog(self):
+        import tempfile
+        from pathlib import Path
+        import test_core
+        from webview.util import parse_file_type
+        from wewriter import webapp
+        f = test_core.CoreTest(); f.setUp()
+        try:
+            out = Path(tempfile.mkdtemp())
+            job = f.db.job('export-test', f.config)
+            draft = f.db.save_draft(job['id'], '标题', '正文。[S1]', [], '# 报告')
+            backend = webapp.Backend(f.db, test_core.FakeVault(), out, demo=False)
+            seen = []
+
+            class Window:
+                def create_file_dialog(self, kind, **kw):
+                    for item in kw.get('file_types', ()):
+                        parse_file_type(item)        # raises exactly like the real dialog
+                    seen.append(kw)
+                    return str(out / kw['save_filename'])
+            backend.window = Window()
+            api = webapp.Api(backend)
+            draft_id = draft if isinstance(draft, int) else draft['id']
+            for fmt in ('docx', 'md', 'txt'):
+                result = api.dr_export(draft_id, 'copy', fmt)
+                self.assertTrue(result['ok'], result)
+                self.assertTrue(Path(result['path']).exists())
+            self.assertEqual(len(seen), 3)
+        finally:
+            f.tearDown()

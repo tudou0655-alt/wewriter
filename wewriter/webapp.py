@@ -691,7 +691,7 @@ class Api:
             path = Path(folder) / name
         else:
             chosen = b.window.create_file_dialog(webview.FileDialog.SAVE, save_filename=name,
-                                                 file_types=(f"{EXPORT_FORMATS[fmt]} (*.{fmt})",))
+                                                 file_types=(DIALOG_FILTERS[fmt],))
             if not chosen:
                 return {'cancelled': True}
             path = Path(chosen if isinstance(chosen, str) else chosen[0])
@@ -828,7 +828,7 @@ class Api:
         b = self._b
         b.require_idle()
         chosen = b.window.create_file_dialog(webview.FileDialog.SAVE, save_filename='公众号工作台备份.sqlite',
-                                             file_types=('SQLite 备份 (*.sqlite)',))
+                                             file_types=(BACKUP_FILTER,))
         if not chosen:
             return {'cancelled': True}
         path = chosen if isinstance(chosen, str) else chosen[0]
@@ -840,7 +840,7 @@ class Api:
         import webview
         b = self._b
         b.require_idle()
-        chosen = b.window.create_file_dialog(webview.FileDialog.OPEN, file_types=('SQLite 备份 (*.sqlite)',))
+        chosen = b.window.create_file_dialog(webview.FileDialog.OPEN, file_types=(BACKUP_FILTER,))
         if not chosen:
             return {'cancelled': True}
         path = chosen if isinstance(chosen, str) else chosen[0]
@@ -870,6 +870,12 @@ class Api:
     def set_open_dir(self):
         os.startfile(self._b.data_dir)
         return {}
+
+
+# Save-dialog filters. pywebview accepts only letters, digits and spaces before "(*.ext)", so the
+# full-width brackets of the on-page labels (“Word（.docx）”) would make every export fail.
+DIALOG_FILTERS = {'docx': 'Word 文档 (*.docx)', 'md': 'Markdown 文件 (*.md)', 'txt': '纯文本 (*.txt)'}
+BACKUP_FILTER = 'SQLite 备份 (*.sqlite)'
 
 
 def window_size(preferred=(1280, 860)):

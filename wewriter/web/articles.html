@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WeWriter 文章库</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap" media="print" onload="this.media='all'">
+<style>
+/* Layout: same rail and column as 工作台; filters on one line, article rows, a reading panel on the right. */
+:root {
+  --ground: #eef2f1; --sheet: #ffffff; --ink: #15232a; --ink-2: #56656d; --rule: #d9e1df;
+  --jade: #0d6b5b; --jade-soft: #e3f1ed; --cinnabar: #b9452f; --cinnabar-soft: #f8e6e1;
+  --amber: #8a5a12; --amber-soft: #f7efdc; --focus: #1f7a68; --glint: #8fe6d1;
+  --font-display: "Noto Serif SC", "Songti SC", "SimSun", serif;
+  --font-body: "Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0e1416; --sheet: #162024; --ink: #e6eeeb; --ink-2: #9cb0ab; --rule: #2a3a3e;
+    --jade: #63c6ae; --jade-soft: #173a33; --cinnabar: #f08c74; --cinnabar-soft: #3d2520;
+    --amber: #e8c27a; --amber-soft: #3a3020; --focus: #63c6ae; --glint: #e6fff8; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0e1416; --sheet: #162024; --ink: #e6eeeb; --ink-2: #9cb0ab; --rule: #2a3a3e;
+  --jade: #63c6ae; --jade-soft: #173a33; --cinnabar: #f08c74; --cinnabar-soft: #3d2520;
+  --amber: #e8c27a; --amber-soft: #3a3020; --focus: #63c6ae; --glint: #e6fff8; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.6; }
+button, select, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.app { display: grid; grid-template-columns: 196px minmax(0, 1fr); min-height: 100%; }
+.rail { background: var(--sheet); border-right: 1px solid var(--rule); padding-block: 22px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 16px; display: flex; flex-direction: column; gap: 28px; }
+.brand { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; }
+.brand b { font-family: var(--font-display); font-size: 22px; letter-spacing: .02em; }
+.brand span { color: var(--ink-2); font-size: 12px; }
+.nav { display: flex; flex-direction: column; gap: 4px; }
+.nav button { all: unset; cursor: pointer; padding: 9px 12px; border-radius: 8px; color: var(--ink-2); display: flex; justify-content: space-between; align-items: center; }
+.nav button:hover { background: var(--ground); color: var(--ink); }
+.nav button[aria-current="page"] { background: var(--jade-soft); color: var(--jade); font-weight: 700; }
+.nav small { font-size: 11px; color: var(--ink-2); font-weight: 400; }
+.rail .foot { margin-top: auto; padding-left: 10px; color: var(--ink-2); font-size: 12px; }
+main { padding-block: 28px 48px; padding-inline: clamp(16px, 3vw, 48px); min-width: 0; }
+.wrap { max-width: 1320px; margin-inline: auto; display: grid; gap: 16px; }
+.top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacing: .02em; }
+.sample { font-size: 12px; color: var(--amber); background: var(--amber-soft); padding: 2px 8px; border-radius: 999px; }
+.note { color: var(--ink-2); font-size: 13px; }
+.panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius); padding: 6px 22px; min-width: 0; }
+.btn { cursor: pointer; border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 7px 14px; white-space: nowrap; }
+.btn:hover { border-color: var(--ink-2); }
+.btn:disabled { cursor: not-allowed; opacity: .5; }
+.btn.primary { background: var(--jade); border-color: var(--jade); color: var(--sheet); font-weight: 700; }
+.btn.quiet { border-color: transparent; color: var(--ink-2); }
+.btn.quiet:hover { color: var(--ink); border-color: var(--rule); }
+a.btn { text-decoration: none; display: inline-block; color: var(--ink); }
+
+/* Filters */
+.filters { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 10px; }
+.input, .select { border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 8px 12px; width: 100%; }
+.select { padding-right: 30px; appearance: none; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-2) 50%), linear-gradient(135deg, var(--ink-2) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 52%, calc(100% - 10px) 52%; background-size: 5px 5px; background-repeat: no-repeat; }
+.input:focus, .select:focus { border-color: var(--jade); outline: none; box-shadow: 0 0 0 3px var(--jade-soft); }
+.meta-row { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* Article rows */
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 14px 0; border-top: 1px solid var(--rule); }
+.list li:first-child { border-top: 0; }
+.list .t { font-weight: 500; font-size: 15px; overflow-wrap: anywhere; text-wrap: pretty; }
+.list .m { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.list .stats { display: flex; gap: 18px; margin-top: 4px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.list .stats span { color: var(--ink-2); }
+.list .stats b { color: var(--ink); font-weight: 700; margin-left: 4px; }
+.list .stats .unknown b { color: var(--ink-2); font-weight: 400; }
+.st-used { color: var(--jade); }
+.st-wait { color: var(--amber); }
+.st-bad { color: var(--cinnabar); }
+.empty { color: var(--ink-2); font-size: 13px; padding: 22px 0; text-align: center; }
+.pager { display: flex; justify-content: space-between; align-items: center; color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+.pager div { display: flex; gap: 8px; }
+
+/* Reading panel */
+.drawer { position: fixed; inset: 0 0 0 auto; width: min(640px, 100%); background: var(--sheet); border-left: 1px solid var(--rule); padding: 22px 28px calc(28px + env(safe-area-inset-bottom, 0px)); padding-right: max(28px, env(safe-area-inset-right, 0px)); overflow-y: auto; box-shadow: -18px 0 40px rgb(0 0 0 / .12); z-index: 20; }
+.dw-top { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 14px; }
+.drawer h3 { font-family: var(--font-display); font-size: 23px; line-height: 1.4; margin: 0 0 6px; text-wrap: balance; }
+.byline { color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.figs { display: flex; gap: 22px; margin: 14px 0 4px; font-variant-numeric: tabular-nums; }
+.figs div { display: grid; }
+.figs b { font-size: 22px; font-family: var(--font-display); }
+.figs span { font-size: 12px; color: var(--ink-2); }
+.figs .unknown b { color: var(--ink-2); font-size: 18px; }
+.body { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--rule); font-size: 15px; line-height: 1.9; }
+.body p { margin: 0 0 1em; max-width: 36em; }
+.body h4 { font-size: 16px; margin: 1.4em 0 .5em; }
+.pic { background: repeating-linear-gradient(45deg, var(--ground) 0 8px, transparent 8px 16px); border: 1px dashed var(--rule); border-radius: 8px; height: 140px; max-width: 100%; display: grid; place-items: center; color: var(--ink-2); font-size: 12px; margin: 0 0 1em; }
+.alert { background: var(--cinnabar-soft); color: var(--cinnabar); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 16px; }
+.wait { background: var(--amber-soft); color: var(--amber); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 16px; }
+details { margin-top: 18px; border-top: 1px solid var(--rule); padding-top: 12px; }
+summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
+details dl { display: grid; grid-template-columns: 8em minmax(0, 1fr); gap: 8px 12px; font-size: 13px; margin: 12px 0 0; }
+details dt { color: var(--ink-2); }
+details dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--sheet); padding: 8px 16px; border-radius: 8px; font-size: 13px; z-index: 30; max-width: calc(100% - 32px); }
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail { flex-direction: row; align-items: center; padding-block: 10px; border-right: 0; border-bottom: 1px solid var(--rule); gap: 14px; overflow-x: auto; }
+  .brand span, .rail .foot, .nav small { display: none; }
+  .nav { flex-direction: row; }
+  main { padding-left: max(16px, env(safe-area-inset-left, 0px)); }
+  .filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .filters .input { grid-column: 1 / -1; }
+  .list li { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
+
+<div class="app">
+  <aside class="rail">
+    <div class="brand"><b>WeWriter</b><span>公众号内容工作台</span></div>
+    <nav class="nav" aria-label="页面" id="nav"></nav>
+    <div class="foot" id="foot"></div>
+  </aside>
+
+  <main>
+    <div class="wrap">
+      <div class="top"><h1>文章库</h1></div>
+      <div class="note">采集到的公众号文章都在这里。任务会按阅读量从这里选文；“未知”表示采集服务没有返回该数字，不等于 0，排在有数字的文章之后。</div>
+
+      <div class="filters">
+        <input class="input" id="q" type="search" placeholder="搜索文章标题" aria-label="搜索文章标题">
+        <select class="select" id="acct" aria-label="按公众号筛选"></select>
+        <select class="select" id="range" aria-label="按发布时间筛选">
+          <option value="all">全部时间</option><option value="today">今天</option><option value="3">近 3 天</option><option value="7">近 7 天</option>
+        </select>
+        <select class="select" id="sort" aria-label="排序">
+          <option value="reads">阅读量优先</option><option value="likes">点赞量优先</option><option value="time">最新发布</option>
+        </select>
+      </div>
+      <div class="meta-row"><span id="total"></span><span>发布时间均为中国时间</span></div>
+      <section class="panel" aria-label="文章列表"><ul class="list" id="list"></ul></section>
+      <div class="pager" id="pager"><span id="pageinfo"></span><div><button class="btn" id="prev">上一页</button><button class="btn" id="next">下一页</button></div></div>
+    </div>
+  </main>
+</div>
+
+<aside class="drawer" id="drawer" hidden aria-labelledby="dw-h">
+  <div class="dw-top"><span class="byline" id="dw-acct"></span><div><button class="btn primary" id="dw-rewrite" title="用这篇文章再生成一篇新稿件，换一个角度写">再写一篇</button> <a class="btn" id="dw-open" href="#" target="_blank" rel="noopener">打开原文</a> <button class="btn quiet" id="dw-close">关闭</button></div></div>
+  <h3 id="dw-h"></h3>
+  <div class="byline" id="dw-by"></div>
+  <div class="figs" id="dw-figs"></div>
+  <div id="dw-state"></div>
+  <div class="body" id="dw-body"></div>
+  <details><summary>采集详情</summary><dl id="dw-meta"></dl></details>
+</aside>
+<div class="toast" id="toast" hidden></div>
+<script src="common.js"></script>
+<script src="articles.js"></script>
+</html>

@@ -1,0 +1,107 @@
+{
+  "fictional": true,
+  "description": "重建的虚构资料包，用来单独检验报告腔：原文以吐槽和传闻数字为主，联网资料包含日期明确的公告、口径不清的媒体数字和相互冲突的说法，模仿《稿件-10》所在题材的证据结构。它不是《稿件-10》的历史输入，不能称为历史复现；人物、机构、数字均为虚构。",
+  "config": {
+    "writing_mode": "single_web",
+    "selection_mode": "hot",
+    "target_words": 1500,
+    "style": "",
+    "topic": "",
+    "min_sources": 1,
+    "article_limit": 1,
+    "quality_review_enabled": true
+  },
+  "sources": [
+    {
+      "source_id": "S1",
+      "article_id": 1,
+      "title": "（虚构）今年的示例职业资格考试，已经无力吐槽了",
+      "url": "https://mp.weixin.qq.com/s/fictional-report-style",
+      "account_name": "虚构备考号",
+      "published_at": "2026-10-18T13:00:00+00:00",
+      "analysis": [
+        {
+          "summary": "虚构原文以考后吐槽为主：作者转述缺考率、补贴下降和计量难度等说法，多为传闻或个人经验，未给出统计来源。",
+          "facts": [
+            {
+              "claim": "作者听说示例省缺考率高达六成（传闻，未注明来源）",
+              "quote": "今年报名的人明显少了，听说示例省的缺考率高达六成。"
+            },
+            {
+              "claim": "作者称证书补贴由约三万降到多数不足一万（个人说法）",
+              "quote": "前几年证书挂出去一年能拿三万补贴，现在多数一万都不到。"
+            },
+            {
+              "claim": "作者认为计量卡掉大多数人，很多人表示明年不考（个人判断）",
+              "quote": "计量这一科把大多数人卡掉了，很多人考完直接说明年不考了。"
+            },
+            {
+              "claim": "作者认为资质改革后企业用证需求不明确（观点）",
+              "quote": "资质改革以后，企业到底还要不要这么多证，谁也说不清。"
+            }
+          ],
+          "uncertainties": [
+            "缺考率六成没有官方来源",
+            "补贴金额为个人经验，没有统计口径",
+            "“卡掉大多数人”没有分科合格率数据",
+            "资质改革对用证需求的影响没有量化依据"
+          ]
+        }
+      ],
+      "metrics": {
+        "reads": 21000,
+        "likes": 260,
+        "observed_at": "2026-10-18T15:00:00+00:00",
+        "source": "weread_list"
+      },
+      "image_analysis": false,
+      "style_reference": {
+        "title_pattern": "情绪化短句加反问，点出“吐槽”",
+        "opening": "用作者自己的考后感受开头，第一句就表态",
+        "structure": "按吐槽点逐条展开：报名、缺考、补贴、计量、证书价值",
+        "tone": "口语化、带情绪，像在朋友圈和同行聊天",
+        "rhythm": "短句多，段落短，常用反问和感叹",
+        "ending": "以一句无奈又自嘲的话收尾"
+      },
+      "web_research": "（虚构）示例省人事考试网 2026 年 9 月公告：本年度考试于 10 月 17–18 日举行，各科合格标准为满分的 60%[W1]。示例省住建部门 2025 年文件调整了造价咨询企业资质要求，但文件未提及对个人证书数量的要求[W2]。一篇自媒体文章称“缺考率 60%”，未说明统计口径和地区[W3]；另一培训机构文章称计量是“最难科目”，属于机构观点[W4]。目前没有检索到全国性的分科合格率或补贴统计。"
+    },
+    {
+      "source_id": "W1",
+      "title": "（虚构）示例省人事考试网：年度考试安排",
+      "url": "https://example.org/fictional-notice-2026",
+      "account_name": "example.org",
+      "kind": "web",
+      "retrieved_at": "2026-10-19T00:00:00+00:00"
+    },
+    {
+      "source_id": "W2",
+      "title": "（虚构）示例省住建部门：资质管理调整通知",
+      "url": "https://example.org/fictional-qualification-2025",
+      "account_name": "example.org",
+      "kind": "web",
+      "retrieved_at": "2026-10-19T00:00:00+00:00"
+    },
+    {
+      "source_id": "W3",
+      "title": "（虚构）自媒体：缺考率 60%，没人考了",
+      "url": "https://example.org/fictional-media-absence",
+      "account_name": "example.org",
+      "kind": "web",
+      "retrieved_at": "2026-10-19T00:00:00+00:00"
+    },
+    {
+      "source_id": "W4",
+      "title": "（虚构）培训机构：各科目难度分析",
+      "url": "https://example.org/fictional-training",
+      "account_name": "example.org",
+      "kind": "web",
+      "retrieved_at": "2026-10-19T00:00:00+00:00"
+    }
+  ],
+  "checks": [
+    "不按“可核实事实/证据局限/合理推断”分节",
+    "传闻数字须以传闻口吻出现，不得写成事实",
+    "不得编造考场场景或对话",
+    "正文不得说明写作或来源标注过程"
+  ]
+}

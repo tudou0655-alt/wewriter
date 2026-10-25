@@ -1,0 +1,371 @@
+<title>WeWriter 稿件库</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap">
+<style>
+/* Layout: list view and a manuscript view in the same column; the manuscript reads like a printed page. */
+:root {
+  --ground: #eef2f1; --sheet: #ffffff; --ink: #15232a; --ink-2: #56656d; --rule: #d9e1df;
+  --jade: #0d6b5b; --jade-soft: #e3f1ed; --cinnabar: #b9452f; --cinnabar-soft: #f8e6e1;
+  --amber: #8a5a12; --amber-soft: #f7efdc; --focus: #1f7a68; --glint: #8fe6d1; --field: #fbfcfc;
+  --font-display: "Noto Serif SC", "Songti SC", "SimSun", serif;
+  --font-body: "Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0e1416; --sheet: #162024; --ink: #e6eeeb; --ink-2: #9cb0ab; --rule: #2a3a3e;
+    --jade: #63c6ae; --jade-soft: #173a33; --cinnabar: #f08c74; --cinnabar-soft: #3d2520;
+    --amber: #e8c27a; --amber-soft: #3a3020; --focus: #63c6ae; --glint: #e6fff8; --field: #11191c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0e1416; --sheet: #162024; --ink: #e6eeeb; --ink-2: #9cb0ab; --rule: #2a3a3e;
+  --jade: #63c6ae; --jade-soft: #173a33; --cinnabar: #f08c74; --cinnabar-soft: #3d2520;
+  --amber: #e8c27a; --amber-soft: #3a3020; --focus: #63c6ae; --glint: #e6fff8; --field: #11191c; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.6; }
+button, select, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.app { display: grid; grid-template-columns: 196px minmax(0, 1fr); min-height: 100%; }
+.rail { background: var(--sheet); border-right: 1px solid var(--rule); padding-block: 22px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 16px; display: flex; flex-direction: column; gap: 28px; }
+.brand { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; }
+.brand b { font-family: var(--font-display); font-size: 22px; letter-spacing: .02em; }
+.brand span { color: var(--ink-2); font-size: 12px; }
+.nav { display: flex; flex-direction: column; gap: 4px; }
+.nav button { all: unset; cursor: pointer; padding: 9px 12px; border-radius: 8px; color: var(--ink-2); display: flex; justify-content: space-between; align-items: center; }
+.nav button:hover { background: var(--ground); color: var(--ink); }
+.nav button[aria-current="page"] { background: var(--jade-soft); color: var(--jade); font-weight: 700; }
+.nav small { font-size: 11px; color: var(--ink-2); font-weight: 400; }
+.rail .foot { margin-top: auto; padding-left: 10px; color: var(--ink-2); font-size: 12px; }
+main { padding-block: 28px 48px; padding-left: 32px; padding-right: max(16px, env(safe-area-inset-right, 0px)); min-width: 0; }
+.wrap { max-width: 980px; display: grid; gap: 16px; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacing: .02em; }
+.sample { font-size: 12px; color: var(--amber); background: var(--amber-soft); padding: 2px 8px; border-radius: 999px; }
+.note { color: var(--ink-2); font-size: 13px; }
+.panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius); padding: 6px 22px; min-width: 0; }
+.btn { cursor: pointer; border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 7px 14px; white-space: nowrap; }
+.btn:hover { border-color: var(--ink-2); }
+.btn:disabled { cursor: not-allowed; opacity: .5; }
+.btn.primary { background: var(--jade); border-color: var(--jade); color: var(--sheet); font-weight: 700; }
+.btn.primary:hover { filter: brightness(1.06); }
+.btn.quiet { border-color: transparent; color: var(--ink-2); }
+.btn.quiet:hover { color: var(--ink); border-color: var(--rule); }
+.btn.warn { color: var(--amber); }
+.input, .select { border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 8px 12px; width: 100%; }
+.select { padding-right: 30px; appearance: none; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-2) 50%), linear-gradient(135deg, var(--ink-2) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 52%, calc(100% - 10px) 52%; background-size: 5px 5px; background-repeat: no-repeat; }
+.input:focus, .select:focus, textarea:focus { border-color: var(--jade); outline: none; box-shadow: 0 0 0 3px var(--jade-soft); }
+
+/* List */
+.filters { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.tabs { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; background: var(--sheet); }
+.tabs button { all: unset; cursor: pointer; padding: 7px 14px; color: var(--ink-2); border-right: 1px solid var(--rule); font-variant-numeric: tabular-nums; }
+.tabs button:last-child { border-right: 0; }
+.tabs button[aria-pressed="true"] { background: var(--jade-soft); color: var(--jade); font-weight: 700; }
+.meta-row { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--ink-2); font-size: 12px; }
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 14px 0; border-top: 1px solid var(--rule); }
+.list li:first-child { border-top: 0; }
+.list .t { font-weight: 500; font-size: 15px; overflow-wrap: anywhere; }
+.list .m { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.s-wait { color: var(--cinnabar); }
+.s-fix { color: var(--amber); }
+.s-ok { color: var(--jade); }
+.flag { color: var(--amber); }
+.empty { color: var(--ink-2); font-size: 13px; padding: 22px 0; text-align: center; }
+.pager { display: flex; justify-content: space-between; align-items: center; color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+.pager div { display: flex; gap: 8px; }
+
+/* Manuscript */
+.bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; font-weight: 700; }
+.pill.wait { background: var(--cinnabar-soft); color: var(--cinnabar); }
+.pill.fix { background: var(--amber-soft); color: var(--amber); }
+.pill.ok { background: var(--jade-soft); color: var(--jade); }
+.sheet { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius); padding: 34px 44px 26px; min-width: 0; }
+.sheet h2 { font-family: var(--font-display); font-size: 26px; line-height: 1.4; margin: 0 0 8px; text-wrap: balance; }
+.byline { color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; display: flex; gap: 14px; flex-wrap: wrap; }
+.warnline { margin-top: 14px; background: var(--amber-soft); color: var(--amber); border-radius: 8px; padding: 9px 12px; font-size: 13px; }
+.okline { margin-top: 14px; background: var(--jade-soft); color: var(--jade); border-radius: 8px; padding: 9px 12px; font-size: 13px; }
+.prose { margin-top: 22px; font-size: 15.5px; line-height: 1.95; max-width: 38em; }
+.prose p { margin: 0 0 1.1em; }
+.prose h3 { font-family: var(--font-display); font-size: 18px; margin: 1.6em 0 .6em; }
+.prose blockquote { margin: 0 0 1.1em; padding: 2px 0 2px 14px; border-left: 3px solid var(--rule); color: var(--ink-2); }
+.cite { font-size: 11px; vertical-align: super; color: var(--jade); margin-left: 1px; cursor: help; }
+.edit-title { font-family: var(--font-display); font-size: 24px; font-weight: 700; width: 100%; border: 1px solid var(--rule); border-radius: 8px; padding: 8px 12px; background: var(--field); }
+textarea.edit-body { width: 100%; min-height: 420px; margin-top: 14px; border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; background: var(--field); font-size: 15px; line-height: 1.9; resize: vertical; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--rule); align-items: center; }
+.actions .grow { flex: 1; }
+.inline { margin-top: 14px; border-radius: 8px; padding: 14px; display: grid; gap: 10px; font-size: 13px; }
+.inline.ok { background: var(--jade-soft); }
+.inline.fix { background: var(--amber-soft); }
+.inline.warn { background: var(--cinnabar-soft); color: var(--cinnabar); }
+.inline .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.inline textarea { border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; background: var(--sheet); min-height: 64px; resize: vertical; }
+.export { display: grid; gap: 12px; }
+.formats { display: flex; gap: 8px; flex-wrap: wrap; }
+.formats label { display: flex; gap: 8px; align-items: center; border: 1px solid var(--rule); border-radius: 8px; padding: 8px 12px; cursor: pointer; background: var(--sheet); }
+.formats input { accent-color: var(--jade); }
+.formats label:has(input:checked) { border-color: var(--jade); color: var(--jade); font-weight: 700; }
+details.more { margin-top: 18px; border-top: 1px solid var(--rule); padding-top: 12px; }
+details.more summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
+.src { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 6px; font-size: 13px; }
+.src li { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 10px; }
+.src b { color: var(--jade); font-weight: 700; }
+.src span small { color: var(--ink-2); display: block; }
+.log { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 6px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.log li { display: grid; grid-template-columns: 10em 6em minmax(0, 1fr); gap: 10px; }
+.log .who { color: var(--ink-2); }
+h5 { font-size: 13px; margin: 16px 0 0; font-weight: 700; }
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--sheet); padding: 8px 16px; border-radius: 8px; font-size: 13px; z-index: 30; max-width: calc(100% - 32px); }
+.guard { position: fixed; inset: 0; background: rgb(0 0 0 / .35); display: grid; place-items: center; z-index: 40; padding: 16px; }
+.guard > div { background: var(--sheet); border-radius: var(--radius); padding: 20px 22px; max-width: 420px; display: grid; gap: 14px; }
+.guard .row { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail { flex-direction: row; align-items: center; padding-block: 10px; border-right: 0; border-bottom: 1px solid var(--rule); gap: 14px; overflow-x: auto; }
+  .brand span, .rail .foot, .nav small { display: none; }
+  .nav { flex-direction: row; }
+  main { padding-left: max(16px, env(safe-area-inset-left, 0px)); }
+  .filters { grid-template-columns: minmax(0, 1fr); }
+  .tabs { overflow-x: auto; }
+  .list li { grid-template-columns: minmax(0, 1fr); }
+  .sheet { padding: 22px 18px; }
+  .log li { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+</style>
+
+<div class="app">
+  <aside class="rail">
+    <div class="brand"><b>WeWriter</b><span>公众号内容工作台</span></div>
+    <nav class="nav" aria-label="页面">
+      <button data-done>工作台<small>已确认</small></button>
+      <button data-done>公众号<small>已确认</small></button>
+      <button data-done>文章库<small>已确认</small></button>
+      <button aria-current="page" id="nav-self">稿件库</button>
+      <button data-later>设置<small>下一页</small></button>
+    </nav>
+    <div class="foot">v0.10.4 · 试用页面</div>
+  </aside>
+
+  <main>
+    <!-- List view -->
+    <div class="wrap" id="v-list">
+      <div class="top"><h1>稿件库</h1><span class="sample">示例数据，可点击试用</span></div>
+      <div class="filters">
+        <input class="input" id="q" type="search" placeholder="搜索稿件标题或正文" aria-label="搜索稿件">
+        <div class="tabs" role="group" aria-label="按审核状态筛选" id="tabs"></div>
+      </div>
+      <div class="meta-row"><span id="total"></span><span>最新生成的在前 · 只有“已通过”计入合格稿件</span></div>
+      <section class="panel" aria-label="稿件列表"><ul class="list" id="list"></ul></section>
+      <div class="pager" id="pager"><span id="pageinfo"></span><div><button class="btn" id="prev">上一页</button><button class="btn" id="next">下一页</button></div></div>
+    </div>
+
+    <!-- Manuscript view -->
+    <div class="wrap" id="v-draft" hidden>
+      <div class="bar">
+        <button class="btn" id="back">← 返回稿件库</button>
+        <span class="pill" id="pill"></span>
+      </div>
+      <article class="sheet" id="sheet"></article>
+    </div>
+  </main>
+</div>
+<div class="guard" id="guard" hidden role="dialog" aria-modal="true" aria-labelledby="guard-t">
+  <div><b id="guard-t">有未保存的修改</b><span class="note">离开后，这次编辑的内容会丢失。</span>
+    <div class="row"><button class="btn quiet" id="guard-stay">继续编辑</button><button class="btn warn" id="guard-leave">放弃修改并离开</button></div></div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const pad = n => String(n).padStart(2, '0');
+function cnNow() { return new Date(Date.now() + (new Date().getTimezoneOffset() + 480) * 60000); }
+function stamp(d) { return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+function ago(h) { const d = cnNow(); d.setMinutes(d.getMinutes() - Math.round(h * 60)); return stamp(d); }
+
+const BODY = `中小企业申报“专精特新”，最近又多了一道必须重视的门槛：防范不良中介。工信部办公厅近日印发通知，要求各地把好认定关，[S1]
+
+## 一、为什么现在强调这件事
+
+近两年申报数量持续增长，一些中介机构以“包过”“内部名额”为卖点收取高额费用，甚至代为编造材料。[S1] 一旦材料失实被查出，企业不仅会被取消资格，还可能影响后续三年的申报。[W1]
+
+## 二、企业该怎么做
+
+> 申报材料应真实、完整，数据口径与财务报表保持一致。
+
+第一，通过工信部门官网和政务服务平台获取申报指南，不依赖中介转述。[W2] 第二，委托服务机构时核实资质并签订规范合同，明确“不承诺结果”。第三，自查研发投入、主营业务收入占比等核心指标，提前准备佐证材料。[S1]
+
+## 三、写在最后
+
+“专精特新”认定看的是企业真实的专业化能力。把功夫花在产品和技术上，比找捷径更可靠。`;
+const SOURCES = [['S1', '示例公众号A《工信部｜防范不良中介机构影响专精特新申报》', '公众号原文 · 10-23 18:24'],
+                 ['W1', '工业和信息化部 · 优质中小企业梯度培育管理办法', '联网资料 · miit.gov.cn'],
+                 ['W2', '某省工业和信息化厅 · 2026 年专精特新中小企业申报指南', '联网资料 · 省级政务网站']];
+const drafts = [
+  ['工信部发文防范不良中介：专精特新申报前要做的三件事', '待审核', 0.4, '1 处引语待核实'],
+  ['国家级单项冠军申报评审，今年看重哪些指标', '待审核', 2.1, ''],
+  ['供热系统降碳改造，中央资金怎么申请', '需修改', 5.5, '标题结论需要核实'],
+  ['从“被排除”到“重点支持”：平板玻璃行业的节能降碳机会', '已通过', 9, ''],
+  ['全过程工程咨询为什么突然火了', '已通过', 20, ''],
+  ['招商引资项目谋划，咨询机构能做什么', '待审核', 26, '联网资料降级，仅基于原文'],
+  ['做项目申报的人，手机里应该常备哪些官方号', '已通过', 30, ''],
+  ['专精特新“钱规则”：补贴到底怎么发', '需修改', 49, '2 处数据口径不一致'],
+  ['城市更新带来的咨询新机会', '已通过', 53, ''],
+  ['融资全过程咨询服务，一个项目的完整做法', '待审核', 70, ''],
+  ['“专精特新”四个字从哪来：一份政策简史', '已通过', 75, ''],
+  ['科技创新平台基地白名单解读', '已通过', 96, ''],
+].map(([t, s, h, flag], i) => ({ id: i + 1, t, s, when: ago(h), flag, body: BODY, rev: 1 + (i % 3),
+  log: s === '已通过' ? [[ago(h - 0.5), '已通过', '']] : s === '需修改' ? [[ago(h - 0.5), '需修改', flag]] : [] }));
+const ui = { q: '', tab: '全部', page: 0, open: null, editing: false, dirty: false, panel: null, fmt: 'docx' };
+const PER = 10;
+const TABS = ['全部', '待审核', '需修改', '已通过'];
+function toast(text) { const t = $('toast'); t.textContent = text; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, 2800); }
+const pillCls = s => ({ '待审核': 'wait', '需修改': 'fix', '已通过': 'ok' }[s]);
+const textCls = s => ({ '待审核': 's-wait', '需修改': 's-fix', '已通过': 's-ok' }[s]);
+
+/* ---- List ---- */
+function renderList() {
+  const rows = drafts.filter(d => (ui.tab === '全部' || d.s === ui.tab) && (!ui.q || d.t.includes(ui.q) || d.body.includes(ui.q)));
+  $('tabs').innerHTML = TABS.map(t => `<button aria-pressed="${t === ui.tab}" data-tab="${t}">${t} ${t === '全部' ? drafts.length : drafts.filter(d => d.s === t).length}</button>`).join('');
+  const pages = Math.max(1, Math.ceil(rows.length / PER)); ui.page = Math.min(ui.page, pages - 1);
+  $('total').textContent = `共 ${rows.length} 篇`;
+  const part = rows.slice(ui.page * PER, ui.page * PER + PER);
+  $('list').innerHTML = part.length ? part.map(d => `<li><div><div class="t">${esc(d.t)}</div>
+      <div class="m"><span class="${textCls(d.s)}">${d.s}</span><span>${d.when}（中国时间）</span>${d.flag ? `<span class="flag">${esc(d.flag)}</span>` : ''}</div></div>
+      <button class="btn" data-open="${d.id}">查看稿件</button></li>`).join('')
+    : `<li class="empty">${ui.q ? '没有找到包含这个关键词的稿件。' : ui.tab === '待审核' ? '没有待审核的稿件。' : '这里还没有稿件。'}</li>`;
+  $('pager').hidden = pages <= 1;
+  $('pageinfo').textContent = `第 ${ui.page + 1}/${pages} 页 · 每页 ${PER} 篇`;
+  $('prev').disabled = ui.page === 0; $('next').disabled = ui.page >= pages - 1;
+}
+$('q').addEventListener('input', e => { ui.q = e.target.value.trim(); ui.page = 0; renderList(); });
+$('tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) { ui.tab = b.dataset.tab; ui.page = 0; renderList(); } });
+$('prev').addEventListener('click', () => { ui.page--; renderList(); });
+$('next').addEventListener('click', () => { ui.page++; renderList(); });
+$('list').addEventListener('click', e => { const b = e.target.closest('[data-open]'); if (b) openDraft(Number(b.dataset.open)); });
+
+/* ---- Manuscript ---- */
+function prose(md) {
+  return md.split(/\n{2,}/).map(block => {
+    const html = esc(block).replace(/\[(S|W)(\d+)\]/g, '<span class="cite" title="来源 $1$2，导出发布稿时会去掉">$1$2</span>');
+    if (block.startsWith('## ')) return `<h3>${html.slice(3)}</h3>`;
+    if (block.startsWith('&gt; ') || block.startsWith('> ')) return `<blockquote>${html.replace(/^&gt;\s*/, '')}</blockquote>`;
+    return `<p>${html}</p>`;
+  }).join('');
+}
+function openDraft(id) { ui.open = drafts.find(d => d.id === id); ui.editing = false; ui.dirty = false; ui.panel = null;
+  $('v-list').hidden = true; $('v-draft').hidden = false; renderDraft(); window.scrollTo({ top: 0 }); }
+function leave(go) {
+  if (ui.dirty) { $('guard').hidden = false; $('guard-stay').focus(); leave.next = go; return; }
+  go();
+}
+$('guard-stay').addEventListener('click', () => { $('guard').hidden = true; });
+$('guard-leave').addEventListener('click', () => { $('guard').hidden = true; ui.dirty = false; ui.editing = false; leave.next && leave.next(); });
+$('back').addEventListener('click', () => leave(() => { ui.open = null; $('v-draft').hidden = true; $('v-list').hidden = false; renderList(); }));
+window.addEventListener('beforeunload', e => { if (ui.dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+function renderDraft() {
+  const d = ui.open, st = d.s;
+  $('pill').className = 'pill ' + pillCls(st);
+  $('pill').textContent = st === '已通过' ? '已通过 · 人工已确认（不代表已发布）' : st;
+  let html;
+  if (ui.editing) {
+    html = `<input class="edit-title" id="e-title" value="${esc(d.t)}" aria-label="标题">
+      <textarea class="edit-body" id="e-body" aria-label="正文">${esc(d.body)}</textarea>
+      <div class="note" style="margin-top: 8px">正文里的 [S1]、[W1] 是来源编号，用来对应素材报告；导出发布稿时会自动去掉。保存修改后稿件回到“待审核”。</div>
+      <div class="actions"><button class="btn primary" id="save">保存修改</button><button class="btn" id="cancel">取消编辑</button></div>`;
+  } else {
+    html = `<h2>${esc(d.t)}</h2>
+      <div class="byline"><span>${d.when}（中国时间）生成</span><span>第 ${d.rev} 版</span><span>约 ${d.body.replace(/\s|\[.+?\]/g, '').length} 字</span></div>
+      ${d.flag ? `<div class="warnline">${esc(d.flag)}：发布前请对照下方“来源与审核提示”核实。</div>` : ''}
+      ${st === '已通过' ? '<div class="okline">你已审核通过这篇稿件。审核通过不会自动发布；修改正文后会回到“待审核”。</div>' : ''}
+      <div class="prose">${prose(d.body)}</div>
+      <div class="actions">
+        <button class="btn" id="edit">编辑</button>
+        <span class="grow"></span>
+        <button class="btn warn" id="fix" ${st === '需修改' ? 'disabled' : ''}>标记需修改</button>
+        <button class="btn primary" id="pass" ${st === '已通过' ? 'disabled' : ''}>审核通过</button>
+        <button class="btn" id="exp">导出</button>
+      </div>
+      <div id="inline"></div>
+      <details class="more"><summary>来源与审核提示</summary>
+        <h5>来源对应关系</h5><ul class="src">${SOURCES.map(([k, t, m]) => `<li><b>${k}</b><span>${esc(t)}<small>${m}</small></span></li>`).join('')}</ul>
+        <h5>机器审核提示（保留原记录，不会因人工审核被清除）</h5>
+        <ul class="log"><li><span>${d.when}</span><span class="who">AI 二审</span><span>${d.flag ? esc(d.flag) : '未发现需要核实的问题'}</span></li></ul>
+        <h5>人工审核记录</h5>
+        <ul class="log">${d.log.length ? d.log.map(([w, s, n]) => `<li><span>${w}</span><span class="who">${s}</span><span>${n ? esc(n) : '—'}</span></li>`).join('') : '<li><span class="note">还没有人工审核记录</span></li>'}</ul>
+        <h5>历史版本</h5>
+        <ul class="log">${Array.from({ length: d.rev }, (_, i) => `<li><span>第 ${d.rev - i} 版</span><span class="who">${i === 0 ? '当前' : ''}</span><span>${i === d.rev - 1 ? '模型生成' : '人工修改'}</span></li>`).join('')}</ul>
+      </details>`;
+  }
+  $('sheet').innerHTML = html;
+  if (ui.editing) {
+    const mark = () => { ui.dirty = $('e-title').value !== d.t || $('e-body').value !== d.body; };
+    $('e-title').addEventListener('input', mark); $('e-body').addEventListener('input', mark);
+    $('save').addEventListener('click', () => {
+      const t = $('e-title').value.trim(), b = $('e-body').value.trim();
+      if (!t || !b) { toast('标题和正文都不能为空'); return; }
+      const changed = t !== d.t || b !== d.body;
+      if (changed) { d.t = t; d.body = b; d.rev += 1; if (d.s !== '待审核') { d.log.push([stamp(cnNow()), '回到待审核', '保存了修改']); d.s = '待审核'; } }
+      ui.editing = false; ui.dirty = false; renderDraft();
+      toast(changed ? '已保存为新版本，稿件回到“待审核”' : '内容没有变化');
+    });
+    $('cancel').addEventListener('click', () => leave(() => { ui.editing = false; renderDraft(); }));
+    $('e-title').focus();
+    return;
+  }
+  $('edit').addEventListener('click', () => { ui.editing = true; renderDraft(); });
+  $('fix').addEventListener('click', () => { ui.panel = 'fix'; renderInline(); });
+  $('pass').addEventListener('click', () => { ui.panel = 'pass'; renderInline(); });
+  $('exp').addEventListener('click', () => { ui.panel = ui.panel === 'exp' ? null : 'exp'; renderInline(); });
+  renderInline();
+}
+
+function renderInline() {
+  const d = ui.open, box = $('inline');
+  if (!box) return;
+  if (ui.panel === 'pass') {
+    box.innerHTML = `<div class="inline ok"><b>确认审核通过？</b><span>请确认已核对正文、事实和来源。审核通过只是确认稿件可用，不会自动发布。</span>
+      <div class="row"><button class="btn primary" id="pass-yes">确认通过</button><button class="btn quiet" id="pass-no">继续检查</button></div></div>`;
+    $('pass-yes').focus();
+    $('pass-yes').addEventListener('click', () => { d.s = '已通过'; d.log.push([stamp(cnNow()), '已通过', '']); ui.panel = null; renderDraft(); toast('已审核通过，工作台的合格篇数会加 1'); });
+    $('pass-no').addEventListener('click', () => { ui.panel = null; renderInline(); });
+  } else if (ui.panel === 'fix') {
+    box.innerHTML = `<div class="inline fix"><b>标记为需修改</b><span>写一句要改什么（可选），会记在审核记录里，方便之后修改。</span>
+      <textarea id="fix-note" placeholder="例如：第二段的数据需要换成官方口径"></textarea>
+      <div class="row"><button class="btn warn" id="fix-yes">标记需修改</button><button class="btn quiet" id="fix-no">取消</button></div></div>`;
+    $('fix-note').focus();
+    $('fix-yes').addEventListener('click', () => { const n = $('fix-note').value.trim(); d.s = '需修改'; d.flag = n || d.flag; d.log.push([stamp(cnNow()), '需修改', n]); ui.panel = null; renderDraft(); toast('已标记为需修改'); });
+    $('fix-no').addEventListener('click', () => { ui.panel = null; renderInline(); });
+  } else if (ui.panel === 'exp') {
+    const unpassed = d.s !== '已通过';
+    box.innerHTML = `<div class="inline" style="background: var(--ground)">
+      ${unpassed ? '<div style="color: var(--cinnabar)"><b>这篇稿件还没有审核通过。</b>仍可以导出，但建议先审核。</div>' : ''}
+      <div class="export"><div class="formats" role="radiogroup" aria-label="导出格式">
+        ${[['docx', 'Word（.docx）'], ['md', 'Markdown（.md）'], ['txt', '纯文本（.txt）']].map(([v, l]) =>
+          `<label><input type="radio" name="fmt" value="${v}" ${ui.fmt === v ? 'checked' : ''}>${l}</label>`).join('')}</div>
+        <div class="row"><button class="btn primary" id="ex-copy">导出发布稿</button><button class="btn" id="ex-report">导出素材报告</button>
+          <button class="btn quiet" id="ex-cancel">模拟取消保存</button></div>
+        <span class="note">发布稿不含 [S1] 这类来源编号和审核备注；来源对应关系和审核记录在素材报告里。保存位置按“设置”里的默认位置，未设置时每次选择。</span></div></div>`;
+    box.querySelectorAll('input[name=fmt]').forEach(r => r.addEventListener('change', e => { ui.fmt = e.target.value; }));
+    const name = (prefix) => `${prefix}${d.t.slice(0, 16)}.${ui.fmt}`;
+    $('ex-copy').addEventListener('click', () => toast(`已导出发布稿：文档\\WeWriter\\${name('')}`));
+    $('ex-report').addEventListener('click', () => toast(`已导出素材报告：文档\\WeWriter\\${name('素材报告-')}`));
+    $('ex-cancel').addEventListener('click', () => toast('已取消导出，没有生成文件'));
+  } else box.innerHTML = '';
+}
+
+document.querySelectorAll('[data-later]').forEach(b => b.addEventListener('click', () => leave(() => toast(`“${b.firstChild.textContent.trim()}”页会在后续逐页交付`))));
+document.querySelectorAll('[data-done]').forEach(b => b.addEventListener('click', () => leave(() => toast('该页已确认，整合时会在同一个软件里切换'))));
+$('nav-self').addEventListener('click', () => $('back').click());
+renderList();
+</script>

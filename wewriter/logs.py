@@ -1,4 +1,9 @@
-"""Local diagnostic log. Never logs API keys, cookies or article bodies."""
+"""Local diagnostic log. Never logs API keys, cookies or article bodies.
+
+``redact`` is also the single redaction boundary for diagnostics persisted in the
+database (task messages, warnings, article errors) and for error text shown in the UI.
+"""
+import json
 import logging
 import logging.handlers
 import re
@@ -10,33 +15,64 @@ logger = logging.getLogger('wewriter')
 MASK = '[已隐藏]'
 # Field names whose values are credentials: API/Skill keys, OAuth tokens and WeRead cookies.
 _SECRET_FIELDS = ('api[_-]?key', 'x-api-key', 'skill[_-]?key', 'access[_-]?token',
-                  'refresh[_-]?token', 'wr_skey', 'wr_rt', 'wr_vid')
+                  'refresh[_-]?token', 'wr_skey', 'wr_rt', 'wr_vid',
+                  # WeRead per-request verification headers and browser login headers.
+                  'x-wr-ticket', 'x-wrpa-0', 'x-skey', 'password', 'passwd', 'client[_-]?secret')
+# Quotes that may wrap a value, including the HTML-escaped forms seen in upstream error pages.
+_QUOTE = r'"|\'|&#34;|&#x22;|&quot;|&#39;|&#x27;|&apos;'
+# An unquoted value runs to whitespace, a quote, a pair separator (; , or Chinese
+# punctuation) or the start of the next URL parameter / HTML entity. Any other character,
+# such as ! : @ # or %, belongs to the value, so special-character secrets are fully masked.
+_UNQUOTED = (r'(?:(?!&(?:#\d+;|#x[0-9a-f]+;|[a-z]+;|[A-Za-z_][\w.-]*=))'
+             r'[^\s"\'；，。、<>;,])+')
+_FIELD_VALUE = re.compile(
+    r'(?im)(?<![A-Za-z0-9_-])((?:%s)(?:%s)?\s*[:=：]\s*)'
+    r'(?:(%s)((?:\\.|(?!\2)[^\\\r\n])*)(\2|$)|(%s))' % ('|'.join(_SECRET_FIELDS), _QUOTE, _QUOTE, _UNQUOTED))
 _VALUE = r'[A-Za-z0-9._~+/%=-]'
 # Each pattern keeps group 1 (the label) and masks group 2 (the value).
 _SECRET_PATTERNS = (
-    # key=value, key: value, "key": "value", URL query and Cookie pairs.
-    re.compile(r'(?i)(?<![A-Za-z0-9_-])((?:%s)["\']?\s*[:=]\s*["\']?)(%s+)'
-               % ('|'.join(_SECRET_FIELDS), _VALUE)),
+    # A whole Cookie / Set-Cookie header value: every pair in it can be a session credential.
+    # It ends at a line break, a quote or Chinese punctuation that separates message parts.
+    re.compile(r'(?i)(?<![A-Za-z0-9_-])((?:set-)?cookie["\']?\s*[:=]\s*["\']?)([^\r\n"\'；，。]+)'),
     # Generic ?key= / &token= URL parameters.
-    re.compile(r'(?i)([?&](?:key|token)=)(%s+)' % _VALUE),
+    re.compile(r'(?i)([?&](?:key|token)=)([^\s&#"\'<>]+)'),
     # Authorization header with or without an auth scheme.
     re.compile(r'(?i)(?<![A-Za-z0-9_-])(authorization["\']?\s*[:=]\s*["\']?'
-               r'(?:(?:bearer|basic|token)\s+)?)(?!(?:bearer|basic|token)\s)(%s+)' % _VALUE),
-    re.compile(r'(?i)\b(bearer\s+)(%s{6,})' % _VALUE),
+               r'(?:(?:bearer|basic|token)\s+)?)(?!(?:bearer|basic|token)\s)(%s)' % _UNQUOTED),
+    re.compile(r'(?i)\b(bearer\s+)((?:(?!&#|&quot;)[^\s"\'；，。、<>;,]){6,})'),
     # Bare sk-/sess- style keys; the prefix must start a token so "task-1" stays intact.
     re.compile(r'(?<![A-Za-z0-9_-])(sk-|sess-)([A-Za-z0-9_-]{16,})'),
 )
+
+
+def _mask_field(match):
+    label, quote, _, closing, _ = match.groups()
+    return label + (quote + MASK + closing if quote else MASK)
 
 
 def redact(text):
     """Return text with credential values replaced by MASK. Never raises."""
     try:
         text = str(text)
+        text = _FIELD_VALUE.sub(_mask_field, text)
         for pattern in _SECRET_PATTERNS:
             text = pattern.sub(lambda m: m.group(1) + MASK, text)
         return text
     except Exception:
         return MASK
+
+
+def redact_warnings(value):
+    """Redact a ``jobs.warnings`` value (JSON list text or list); return JSON list text.
+
+    Unparseable text is redacted as a single warning so it is never stored verbatim."""
+    try:
+        items = json.loads(value) if isinstance(value, str) else value
+    except ValueError:
+        items = [value]
+    if not isinstance(items, list):
+        items = [items]
+    return json.dumps([redact(item) for item in items], ensure_ascii=False)
 
 
 class _Redact(logging.Filter):

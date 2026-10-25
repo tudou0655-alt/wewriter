@@ -12,8 +12,12 @@ DEFAULTS = {
     "source_provider": "weread",
     "schedule_enabled": False, "schedule_time": "09:00", "timezone": "Asia/Shanghai",
     "schedule_start": "", "article_limit": 10, "lookback_hours": 24,
+    # 'today': the China-time calendar day of the task; 'rolling': last lookback_hours.
+    "lookback_mode": "rolling",
+    "export_format": "docx", "export_dir": "",
     "per_account_limit": 24, "min_sources": 2, "target_words": 1500,
-    "topic": "", "style": "面向普通读者，清晰、客观、有逻辑，避免夸张营销和空泛套话。",
+    "topic": "", "style": "面向企业决策者和申报负责人：专业但好懂，结论先行，像懂行的同行讲清政策变化和申报要点；用数据和往年对比说话，避免公文套话和夸张营销。",
+    "style_preset": "政策申报实务",
     "summary_provider": "openai", "writer_provider": "deepseek",
     # 'skip': articles whose text is under 100 characters are skipped (next
     # ranked article takes the slot). 'vision': send images to OpenAI.
@@ -23,6 +27,9 @@ DEFAULTS = {
         "deepseek": {"base_url": "https://api.deepseek.com", "model": "deepseek-flash"},
     },
 }
+
+
+LEGACY_DEFAULT_STYLE = '面向普通读者，清晰、客观、有逻辑，避免夸张营销和空泛套话。'
 
 
 def defaults():
@@ -45,6 +52,17 @@ def migrate(config):
     # old databases cannot keep filtering articles invisibly.
     result.pop('skip_promotions', None)
     result.pop('promotion_keywords', None)
+    # T-010: EveryInfra comment analysis is withdrawn; an old true value must
+    # not trigger comment fetching or comment-model calls.
+    result['comments_enabled'] = False
+    # T-013: the old built-in default (never chosen by the user) moves to the customer's
+    # policy-application voice; any style the user picked or wrote stays as it is.
+    if 'style_preset' not in config:
+        # Saved before presets were stored: the preset is recovered from the text when shown.
+        result['style_preset'] = ''
+    if result.get('style') == LEGACY_DEFAULT_STYLE and not config.get('style_preset'):
+        result['style'] = DEFAULTS['style']
+        result['style_preset'] = DEFAULTS['style_preset']
     return result
 
 
@@ -53,8 +71,15 @@ def validate(config):
         raise ValueError('图片型文章处理方式无效')
     if config.get('writing_mode', 'combined') not in ('combined', 'separate_web', 'single_web'):
         raise ValueError('写作模式无效')
-    if config.get('draft_count', 3) not in (2, 3):
-        raise ValueError('独立文章数量请选择 2 或 3')
+    count = config.get('draft_count', 3)
+    if type(count) is not int or not 1 <= count <= 5:
+        raise ValueError('生成篇数请选择 1 到 5 篇')
+    if config.get('lookback_mode', 'rolling') not in ('today', 'rolling'):
+        raise ValueError('文章时间范围无效')
+    if config.get('export_format', 'docx') not in ('docx', 'md', 'txt'):
+        raise ValueError('导出格式请选择 Word、Markdown 或 TXT')
+    if not isinstance(config.get('export_dir', ''), str):
+        raise ValueError('导出位置无效')
     if config.get('writing_mode') in ('separate_web', 'single_web'):
         u = urlsplit(config.get('search_url', ''))
         if u.scheme != 'https' or not u.hostname or u.username or u.password or u.query or u.fragment:
@@ -75,8 +100,8 @@ def validate(config):
         raise ValueError("执行时间请使用 HH:MM，例如 09:00")
     for key, low, high in [("article_limit", 1, 100), ("lookback_hours", 1, 720),
                            ("per_account_limit", 1, 160), ("min_sources", 1, 20),
-                           ("target_words", 300, 5000)]:
-        if not isinstance(config[key], int) or not low <= config[key] <= high:
+                           ("target_words", 200, 20000)]:
+        if type(config[key]) is not int or not low <= config[key] <= high:
             raise ValueError(f"{key} 必须在 {low}–{high} 之间")
     if config["min_sources"] > config["article_limit"]:
         raise ValueError("最少素材篇数不能大于采集上限")

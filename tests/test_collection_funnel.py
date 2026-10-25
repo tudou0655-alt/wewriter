@@ -123,7 +123,7 @@ class FunnelTest(unittest.TestCase):
         self.assertIn('最终可用素材 1 篇，完成稿件 1 篇', text)
         self.assertIn('- 虚构公众号甲：返回 1 篇，进入候选 1 篇，进入处理队列 1 篇；可用素材 1 篇', text)
         self.assertIn('- 虚构公众号乙：返回 2 篇，进入候选 1 篇，进入处理队列 1 篇；可用素材 0 篇；'
-                      '跳过：超出时间范围 1、正文获取或摘要失败 1', text)
+                      '跳过：超出时间范围 1、正文获取失败（旧记录可能含摘要失败） 1', text)
         self.assertNotIn(BODY[:20], job['funnel'])
 
     def test_account_failure_is_recorded_and_redacted(self):
@@ -195,7 +195,7 @@ class FunnelTest(unittest.TestCase):
                          (4, 1, 1, 1, 1))
         self.assertEqual(funnel['drafts'], 1)
         text = format_funnel(job['funnel'])
-        for line in ('排除：图片型跳过 1', '排除：正文获取或摘要失败 1', '排除：正文重复 1', '- 可用素材：1'):
+        for line in ('排除：图片型跳过 1', '排除：正文获取失败（旧记录可能含摘要失败） 1', '排除：正文重复 1', '- 可用素材：1'):
             self.assertIn(line, text)
         self.assert_consistent(funnel)
 
@@ -256,7 +256,7 @@ class FunnelTest(unittest.TestCase):
         text = format_funnel(job['funnel'])
         self.assertIn('- 同名公众号（acct0）：返回 1 篇，进入候选 1 篇，进入处理队列 1 篇；可用素材 1 篇', text)
         self.assertIn('- 同名公众号（acct1）：返回 2 篇，进入候选 1 篇，进入处理队列 1 篇；可用素材 0 篇；'
-                      '跳过：超出时间范围 1、正文获取或摘要失败 1', text)
+                      '跳过：超出时间范围 1、正文获取失败（旧记录可能含摘要失败） 1', text)
 
     def test_same_name_failure_stays_on_its_account(self):
         self.accounts('同名公众号', '同名公众号')
@@ -294,6 +294,75 @@ class FunnelTest(unittest.TestCase):
                          {'returned': 2, 'candidates': 2, 'queued': 2, 'usable': 2})
         self.assertEqual(funnel['drafts'], 2)
         self.assert_consistent(funnel)
+
+    def test_latest_returned_time_is_true_max_in_china_time(self):
+        self.accounts('虚构公众号甲')
+        posted = ['2026-01-01T10:00:00Z',          # UTC -> 2026-01-01 18:00 China time
+                  '2026-01-02T03:07:00+05:00',     # offset -> 2026-01-02 06:07 China time (newest)
+                  '2026-01-02 05:30:00',           # naive, read as China time
+                  1767276000000,                   # epoch ms -> 2026-01-01 22:00 China time
+                  'not-a-date']
+        listing = [{'title': '虚构旧文' + str(n), 'url': 'https://mp.weixin.qq.com/s/fake-old%d' % n, 'posted_at': when}
+                   for n, when in enumerate(posted)]
+        status, job, funnel = self.run_job('latest:1', {'acct0': listing})
+        account = funnel['accounts']['acct:acct0']
+        self.assertEqual((account['counts']['out_of_window'], account['counts']['invalid']), (4, 1))
+        self.assertEqual(account['latest_published'], '2026-01-01T22:07:00+00:00')
+        self.assertIn('跳过：超出时间范围 4、条目无效 1；最近返回文章：2026-01-02 06:07（中国时间）',
+                      format_funnel(job['funnel']))
+        # Neither the first nor the last listed item decides the answer.
+        listing.reverse()
+        status, job, funnel = self.run_job('latest:2', {'acct0': listing})
+        self.assertEqual(funnel['accounts']['acct:acct0']['latest_published'], '2026-01-01T22:07:00+00:00')
+        self.assert_consistent(funnel)
+
+    def test_latest_returned_time_shown_only_with_out_of_window(self):
+        self.accounts('虚构公众号甲', '虚构公众号乙', '虚构公众号丙', '虚构公众号丁')
+        fresh = item('m1', hours_ago=1)
+        status, job, funnel = self.run_job('latest:mixed', {
+            'acct0': [item('m-old', hours_ago=72), fresh, item('m-older', hours_ago=96)],
+            'acct1': [item('n1', hours_ago=2)],
+            'acct2': ApiError('simulated outage'),
+            'acct3': [],
+        })
+        expected = datetime.fromisoformat(fresh['posted_at']).astimezone(timezone(timedelta(hours=8)))
+        text = format_funnel(job['funnel'])
+        # The account still has an in-window candidate: the newest returned time is that one.
+        self.assertIn('跳过：超出时间范围 2；最近返回文章：%s（中国时间）' % expected.strftime('%Y-%m-%d %H:%M'), text)
+        self.assertEqual(text.count('最近返回文章'), 1)
+        self.assertIn('latest_published', funnel['accounts']['acct:acct1'])
+        self.assertNotIn('latest_published', funnel['accounts']['acct:acct2'])
+        self.assertNotIn('latest_published', funnel['accounts']['acct:acct3'])
+        self.assertIn('- 虚构公众号丙：采集失败，simulated outage', text)
+        self.assertIn('- 虚构公众号丁：返回 0 篇，进入候选 0 篇，进入处理队列 0 篇；可用素材 0 篇\n', text + '\n')
+        self.assert_consistent(funnel)
+
+    def test_old_funnel_without_latest_time_still_formats(self):
+        self.accounts('虚构公众号甲')
+        status, job, funnel = self.run_job('latest:legacy', {'acct0': [item('l-old', hours_ago=48), item('l1')]})
+        for value in (None, 'not-a-date', '2026-01-01T10:00:00'):
+            account = funnel['accounts']['acct:acct0']
+            account.pop('latest_published', None)
+            if value is not None:
+                account['latest_published'] = value
+            text = format_funnel(json.dumps(funnel, ensure_ascii=False))
+            self.assertIn('跳过：超出时间范围 1', text)
+            self.assertNotIn('最近返回文章', text)
+
+    def test_retry_reusing_selection_keeps_latest_time(self):
+        self.accounts('虚构公众号甲')
+        listing = {'acct0': [item('t-old', hours_ago=48), item('t1')]}
+        Model.fail_write = True
+        status, job, first = self.run_job('latest:retry', listing)
+        self.assertEqual(status, '失败')
+        Model.fail_write = False
+        status, job, funnel = self.run_job('latest:retry', listing)
+        self.assertEqual(status, '已完成')
+        self.assertTrue(funnel['collection']['reused'])
+        latest = first['accounts']['acct:acct0']['latest_published']
+        self.assertEqual(funnel['accounts']['acct:acct0']['latest_published'], latest)
+        shown = datetime.fromisoformat(latest).astimezone(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M')
+        self.assertIn('最近返回文章：%s（中国时间）' % shown, format_funnel(job['funnel']))
 
     def test_old_job_without_funnel(self):
         self.assertEqual(format_funnel(''), '该历史任务没有采集统计')

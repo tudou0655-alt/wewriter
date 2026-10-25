@@ -54,13 +54,23 @@ class DeliveryCheckTest(unittest.TestCase):
         self.assertNotIn(str(root), output)
 
     def test_version_mismatch_fails(self):
+        # A second, hard-coded version string is a failure even before it drifts.
         root = self.fake_project()
         build = root / 'scripts' / 'build.ps1'
-        build.write_text(build.read_text(encoding='utf-8').replace(
-            "$version = '", "$version = '9.9.9-fake", 1), encoding='utf-8')
+        build.write_text("$version = '9.9.9-fake'\n" + build.read_text(encoding='utf-8'), encoding='utf-8')
         code, output = run(['--root', str(root)])
         self.assertEqual(code, 1)
         self.assertIn('[失败] 版本号一致', output)
+        self.assertIn('build.ps1', output)
+
+    def test_readme_version_mismatch_fails(self):
+        root = self.fake_project()
+        readme = root / 'README.md'
+        lines = readme.read_text(encoding='utf-8').splitlines()
+        readme.write_text('\n'.join(['# 公众号工作台 v9.9.9'] + lines[1:]), encoding='utf-8')
+        code, output = run(['--root', str(root)])
+        self.assertEqual(code, 1)
+        self.assertIn('README 标题版本', output)
 
     def test_unexpected_error_is_reported_not_raised(self):
         def boom(root):

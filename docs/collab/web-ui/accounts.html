@@ -1,0 +1,406 @@
+<title>WeWriter 公众号</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap">
+<style>
+/* Layout: same rail and column as 工作台; the account list is the page, sync opens above it. */
+:root {
+  --ground: #eef2f1; --sheet: #ffffff; --ink: #15232a; --ink-2: #56656d; --rule: #d9e1df;
+  --jade: #0d6b5b; --jade-soft: #e3f1ed; --cinnabar: #b9452f; --cinnabar-soft: #f8e6e1;
+  --amber: #8a5a12; --amber-soft: #f7efdc; --focus: #1f7a68; --glint: #8fe6d1; --off: #c4cecb;
+  --font-display: "Noto Serif SC", "Songti SC", "SimSun", serif;
+  --font-body: "Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0e1416; --sheet: #162024; --ink: #e6eeeb; --ink-2: #9cb0ab; --rule: #2a3a3e;
+    --jade: #63c6ae; --jade-soft: #173a33; --cinnabar: #f08c74; --cinnabar-soft: #3d2520;
+    --amber: #e8c27a; --amber-soft: #3a3020; --focus: #63c6ae; --glint: #e6fff8; --off: #3a4a4e; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0e1416; --sheet: #162024; --ink: #e6eeeb; --ink-2: #9cb0ab; --rule: #2a3a3e;
+  --jade: #63c6ae; --jade-soft: #173a33; --cinnabar: #f08c74; --cinnabar-soft: #3d2520;
+  --amber: #e8c27a; --amber-soft: #3a3020; --focus: #63c6ae; --glint: #e6fff8; --off: #3a4a4e; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.6; }
+button, select, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.app { display: grid; grid-template-columns: 196px minmax(0, 1fr); min-height: 100%; }
+.rail { background: var(--sheet); border-right: 1px solid var(--rule); padding-block: 22px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 16px; display: flex; flex-direction: column; gap: 28px; }
+.brand { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; }
+.brand b { font-family: var(--font-display); font-size: 22px; letter-spacing: .02em; }
+.brand span { color: var(--ink-2); font-size: 12px; }
+.nav { display: flex; flex-direction: column; gap: 4px; }
+.nav button { all: unset; cursor: pointer; padding: 9px 12px; border-radius: 8px; color: var(--ink-2); display: flex; justify-content: space-between; align-items: center; }
+.nav button:hover { background: var(--ground); color: var(--ink); }
+.nav button[aria-current="page"] { background: var(--jade-soft); color: var(--jade); font-weight: 700; }
+.nav small { font-size: 11px; color: var(--ink-2); font-weight: 400; }
+.rail .foot { margin-top: auto; padding-left: 10px; color: var(--ink-2); font-size: 12px; }
+main { padding-block: 28px 48px; padding-left: 32px; padding-right: max(16px, env(safe-area-inset-right, 0px)); min-width: 0; }
+.wrap { max-width: 980px; display: grid; gap: 18px; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.top .acts { display: flex; gap: 10px; }
+h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacing: .02em; }
+.sample { font-size: 12px; color: var(--amber); background: var(--amber-soft); padding: 2px 8px; border-radius: 999px; }
+.panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius); padding: 20px 22px; min-width: 0; }
+.panel h2 { font-size: 16px; margin: 0; font-weight: 700; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.btn { cursor: pointer; border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 7px 14px; }
+.btn:hover { border-color: var(--ink-2); }
+.btn:disabled { cursor: not-allowed; opacity: .5; }
+.btn.primary { background: var(--jade); border-color: var(--jade); color: var(--sheet); font-weight: 700; padding: 8px 18px; }
+.btn.primary:hover { filter: brightness(1.06); }
+.btn.quiet { border-color: transparent; color: var(--ink-2); }
+.btn.quiet:hover { color: var(--ink); border-color: var(--rule); }
+.btn.danger { color: var(--cinnabar); border-color: var(--cinnabar-soft); }
+.note { color: var(--ink-2); font-size: 13px; }
+.shine { background: linear-gradient(100deg, var(--jade) 0%, var(--jade) 38%, var(--glint) 50%, var(--jade) 62%, var(--jade) 100%);
+  background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: glint 1.8s linear infinite; }
+@keyframes glint { from { background-position: 125% 0; } to { background-position: -125% 0; } }
+
+/* Sync panel: three real steps in order. */
+.sync { border-color: var(--jade); box-shadow: 0 0 0 3px var(--jade-soft); }
+.stepper { list-style: none; margin: 4px 0 16px; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stepper li { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.stepper .bar { height: 4px; border-radius: 4px; background: var(--rule); position: relative; overflow: hidden; }
+.stepper li.done { color: var(--ink); }
+.stepper li.done .bar { background: var(--jade); }
+.stepper li.now { color: var(--jade); font-weight: 700; }
+.stepper li.now .bar { background: var(--jade-soft); }
+.stepper li.now .bar::after { content: ""; position: absolute; inset: 0; width: 40%; background: linear-gradient(90deg, transparent, var(--jade), transparent); animation: run 1.6s linear infinite; }
+@keyframes run { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+.qr { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 20px; align-items: center; }
+.qr .code { width: 148px; aspect-ratio: 1; max-width: 100%; border-radius: 10px; border: 1px dashed var(--rule); display: grid; place-items: center; text-align: center; color: var(--ink-2); font-size: 12px; background:
+  repeating-linear-gradient(45deg, var(--ground) 0 6px, transparent 6px 12px); }
+.qr ol { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
+.pick { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 320px; overflow-y: auto; }
+.pick label { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.pick label:hover { background: var(--ground); }
+.pick input { width: 16px; height: 16px; accent-color: var(--jade); }
+.pick .tag { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--jade-soft); color: var(--jade); }
+.pick .tag.have { background: var(--ground); color: var(--ink-2); }
+.pick label.have { cursor: default; color: var(--ink-2); }
+.bar-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+.bar-row .grow { flex: 1; }
+.err { background: var(--cinnabar-soft); color: var(--cinnabar); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+
+/* Manual add */
+.form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 14px; }
+.form label { display: grid; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.input { border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 8px 12px; width: 100%; }
+.input:focus { border-color: var(--jade); outline: none; box-shadow: 0 0 0 3px var(--jade-soft); }
+.hint { font-size: 12px; color: var(--ink-2); }
+.hint.bad { color: var(--cinnabar); }
+.hint.ok { color: var(--jade); }
+
+/* List */
+.tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.tools .input { max-width: 300px; }
+.filter { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+.filter button { all: unset; cursor: pointer; padding: 6px 12px; color: var(--ink-2); font-size: 13px; border-right: 1px solid var(--rule); }
+.filter button:last-child { border-right: 0; }
+.filter button[aria-pressed="true"] { background: var(--jade-soft); color: var(--jade); font-weight: 700; }
+.tools .count { margin-left: auto; color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 18px; align-items: center; padding: 14px 0; border-top: 1px solid var(--rule); }
+.list li:first-child { border-top: 0; padding-top: 2px; }
+.list .name { font-weight: 700; overflow-wrap: anywhere; }
+.list .state { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.list .state.bad { color: var(--cinnabar); }
+.list li.off .name { color: var(--ink-2); font-weight: 500; }
+.list li.new { animation: arrive 1.4s ease-out; }
+@keyframes arrive { from { background: var(--jade-soft); } to { background: transparent; } }
+.switch { display: inline-flex; gap: 8px; align-items: center; cursor: pointer; font-size: 13px; color: var(--ink-2); background: none; border: 0; padding: 4px; }
+.switch .track { width: 36px; height: 20px; border-radius: 999px; background: var(--off); position: relative; transition: background .18s; }
+.switch .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--sheet); transition: transform .18s; box-shadow: 0 1px 2px rgb(0 0 0 / .2); }
+.switch[aria-checked="true"] .track { background: var(--jade); }
+.switch[aria-checked="true"] .track::after { transform: translateX(16px); }
+.switch[aria-checked="true"] { color: var(--ink); }
+.switch .lbl { width: 3em; text-align: left; }
+.empty { color: var(--ink-2); font-size: 13px; padding: 18px 0 8px; }
+.pager { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+.pager div { display: flex; gap: 8px; }
+
+/* Drawer */
+.drawer { position: fixed; inset: 0 0 0 auto; width: min(480px, 100%); background: var(--sheet); border-left: 1px solid var(--rule); padding: 22px 24px calc(24px + env(safe-area-inset-bottom, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); overflow-y: auto; box-shadow: -18px 0 40px rgb(0 0 0 / .12); z-index: 20; }
+.drawer h3 { font-family: var(--font-display); font-size: 21px; margin: 0; }
+.drawer h4 { font-size: 13px; color: var(--ink-2); font-weight: 500; margin: 22px 0 8px; }
+.drawer dl { display: grid; grid-template-columns: 7em minmax(0, 1fr); gap: 8px 12px; font-size: 13px; margin: 0; }
+.drawer dt { color: var(--ink-2); }
+.drawer dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.recent { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.recent li { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; background: var(--ground); padding: 7px 10px; border-radius: 6px; }
+.recent span:last-child { color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.confirm { background: var(--cinnabar-soft); color: var(--cinnabar); border-radius: 8px; padding: 12px; font-size: 13px; display: grid; gap: 10px; }
+.confirm div { display: flex; gap: 8px; }
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--sheet); padding: 8px 16px; border-radius: 8px; font-size: 13px; z-index: 30; max-width: calc(100% - 32px); }
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail { flex-direction: row; align-items: center; padding-block: 10px; border-right: 0; border-bottom: 1px solid var(--rule); gap: 14px; overflow-x: auto; }
+  .brand span, .rail .foot, .nav small { display: none; }
+  .nav { flex-direction: row; }
+  main { padding-left: max(16px, env(safe-area-inset-left, 0px)); }
+  .qr, .form { grid-template-columns: minmax(0, 1fr); }
+  .list li { grid-template-columns: minmax(0, 1fr) auto; }
+  .list li .more { grid-column: 1 / -1; justify-self: start; }
+  .tools .count { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shine { animation: none; color: var(--jade); background: none; }
+  .stepper li.now .bar::after { animation: none; width: 100%; opacity: .5; }
+  .list li.new { animation: none; }
+  .switch .track, .switch .track::after { transition: none; }
+}
+</style>
+
+<div class="app">
+  <aside class="rail">
+    <div class="brand"><b>WeWriter</b><span>公众号内容工作台</span></div>
+    <nav class="nav" aria-label="页面">
+      <button data-done>工作台<small>已确认</small></button>
+      <button aria-current="page">公众号</button>
+      <button data-later>文章库<small>下一页</small></button>
+      <button data-later>稿件库<small>待交付</small></button>
+      <button data-later>设置<small>待交付</small></button>
+    </nav>
+    <div class="foot">v0.10.4 · 试用页面</div>
+  </aside>
+
+  <main>
+    <div class="wrap">
+      <div class="top">
+        <h1>公众号</h1>
+        <div class="acts">
+          <button class="btn" id="add-open">手动添加</button>
+          <button class="btn primary" id="sync-open">扫码同步书架</button>
+        </div>
+      </div>
+      <div class="note">采集名单来自<b>微信读书书架</b>里的公众号（不是微信关注列表）。启用、停用和删除从下一个新任务起生效。 <span class="sample">示例数据，可点击试用</span></div>
+
+      <section class="panel sync" id="sync" hidden aria-labelledby="sync-h">
+        <div class="panel-head"><h2 id="sync-h">同步微信读书书架</h2><button class="btn quiet" id="sync-close">关闭</button></div>
+        <ol class="stepper" id="stepper"><li><span class="bar"></span>扫码登录</li><li><span class="bar"></span>读取书架</li><li><span class="bar"></span>选择要导入的公众号</li></ol>
+        <div id="sync-body"></div>
+      </section>
+
+      <section class="panel" id="add" hidden aria-labelledby="add-h">
+        <div class="panel-head"><h2 id="add-h">手动添加公众号</h2><button class="btn quiet" id="add-close">取消</button></div>
+        <form class="form" id="add-form" novalidate>
+          <label>公众号名称<input class="input" id="add-name" placeholder="例如：思博产业研究" autocomplete="off"></label>
+          <label>该公众号任一文章的链接<input class="input" id="add-link" placeholder="https://mp.weixin.qq.com/s?__biz=…" autocomplete="off"></label>
+          <div class="hint" id="add-hint" style="grid-column: 1 / -1">软件从链接里的账号编号（__biz）识别是哪个公众号，不按名称猜测；名称需和公众号实际名称一致。</div>
+          <div class="bar-row" style="grid-column: 1 / -1; margin-top: 0"><button class="btn primary" type="submit">添加</button></div>
+        </form>
+      </section>
+
+      <section class="panel" aria-label="公众号名单">
+        <div class="tools" style="margin-bottom: 14px">
+          <input class="input" id="q" type="search" placeholder="搜索已添加的公众号" aria-label="搜索公众号">
+          <div class="filter" role="group" aria-label="筛选" id="filter">
+            <button aria-pressed="true" data-v="all">全部</button><button aria-pressed="false" data-v="on">已启用</button><button aria-pressed="false" data-v="off">已停用</button>
+          </div>
+          <span class="count" id="count"></span>
+        </div>
+        <ul class="list" id="list"></ul>
+        <div class="pager" id="pager" hidden><span id="pageinfo"></span><div><button class="btn" id="prev">上一页</button><button class="btn" id="next">下一页</button></div></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<aside class="drawer" id="drawer" hidden aria-labelledby="dw-h">
+  <div class="panel-head" style="margin-bottom: 2px"><h3 id="dw-h"></h3><button class="btn quiet" id="dw-close">关闭</button></div>
+  <div id="dw-body"></div>
+</aside>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let seq = 10;
+const accounts = [
+  { id: 1, name: '示例公众号A', mp: 'MP_WXS_3533509125', on: true, last: { when: '10-25 10:02', got: 15, latest: '10-25 09:15', ok: true,
+    recent: [['工信部｜防范不良中介机构影响专精特新申报', '10-23 18:24'], ['2026年｜国家级单项冠军企业申报评审', '10-22 22:01']] } },
+  { id: 2, name: '示例公众号B', mp: 'MP_WXS_3090280306', on: true, last: { when: '10-25 10:02', got: 0, ok: false,
+    reason: '采集服务繁忙（HTTP 503），这次没读到文章，也没有扣费。下一个任务会自动重试。' } },
+  { id: 3, name: '示例公众号C', mp: 'MP_WXS_3922701729', on: true, last: { when: '10-25 10:02', got: 10, latest: '10-21 21:56', ok: true,
+    recent: [['做项目申报，我手机里常年置顶的这些官方号', '10-21 21:56']] } },
+  { id: 4, name: '示例公众号D', mp: 'MP_WXS_3930946218', on: true, last: { when: '10-25 10:02', got: 10, latest: '10-24 23:40', ok: true,
+    recent: [['全过程工程咨询，开始行动了！', '10-24 23:40'], ['贵州133万产业大招商项目谋划编制 中标了！', '10-24 15:55']] } },
+  { id: 5, name: '示例公众号E', mp: 'MP_WXS_3931691072', on: false, last: { when: '10-20 09:00', got: 11, latest: '10-13 23:43', ok: true,
+    recent: [['国家到底给不给钱？专精特新的“钱规则”', '10-13 23:43']] } },
+];
+const SHELF = [['示例公众号A', 'MP_WXS_3533509125'], ['示例公众号B', 'MP_WXS_3090280306'], ['示例公众号C', 'MP_WXS_3922701729'],
+               ['示例公众号D', 'MP_WXS_3930946218'], ['示例公众号E', 'MP_WXS_3931691072'], ['政策速递', 'MP_WXS_3301122334'],
+               ['园区招商观察', 'MP_WXS_3402233445']];
+const ui = { q: '', filter: 'all', sync: null, loggedIn: false, fresh: new Set(), page: 0 };
+const PER = 10;   // accounts per page
+// More sample accounts so paging can be tried.
+['园区观察', '政策研究室', '投资项目快报', '产业链研究', '营商环境', '科技金融', '招标信息速览', '工程造价参考']
+  .forEach((name, i) => accounts.push({ id: 100 + i, name, mp: 'MP_WXS_35' + String(10000000 + i * 7919), on: i % 3 !== 2,
+    last: { when: '10-25 10:02', got: 6 + i, latest: '10-2' + (4 - i % 3) + ' 2' + i % 4 + ':1' + i, ok: true } }));
+
+function toast(text) { const t = $('toast'); t.textContent = text; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, 2600); }
+
+function stateText(a) {
+  if (!a.on) return ['已暂停采集，新任务不会读取这个公众号', ''];
+  if (!a.last) return ['还没有采集过，下一个任务会读取', ''];
+  if (!a.last.ok) return ['上次采集失败 · ' + a.last.when, 'bad'];
+  return [`采集正常 · 上次读到 ${a.last.got} 篇，最近一篇 ${a.last.latest}`, ''];
+}
+
+function renderList() {
+  const all = accounts.filter(a => (!ui.q || a.name.includes(ui.q)) &&
+    (ui.filter === 'all' || (ui.filter === 'on') === a.on));
+  const pages = Math.max(1, Math.ceil(all.length / PER));
+  ui.page = Math.min(ui.page, pages - 1);
+  const rows = all.slice(ui.page * PER, ui.page * PER + PER);
+  $('pager').hidden = pages <= 1;
+  $('pageinfo').textContent = `共 ${all.length} 个 · 第 ${ui.page + 1}/${pages} 页`;
+  $('prev').disabled = ui.page === 0; $('next').disabled = ui.page >= pages - 1;
+  $('count').textContent = `${accounts.length} 个公众号 · ${accounts.filter(a => a.on).length} 个已启用`;
+  $('list').innerHTML = rows.length ? rows.map(a => {
+    const [text, cls] = stateText(a);
+    return `<li class="${a.on ? '' : 'off'} ${ui.fresh.has(a.id) ? 'new' : ''}" data-id="${a.id}">
+      <div><div class="name">${esc(a.name)}</div><div class="state ${cls}">${text}</div></div>
+      <button class="switch" role="switch" aria-checked="${a.on}" aria-label="${a.on ? '停用' : '启用'} ${esc(a.name)}" data-toggle="${a.id}">
+        <span class="track"></span><span class="lbl">${a.on ? '已启用' : '已停用'}</span></button>
+      <button class="btn more" data-detail="${a.id}">详情</button></li>`;
+  }).join('') : `<li class="empty">${ui.q || ui.filter !== 'all' ? '没有符合条件的公众号。' : '名单还是空的。点“扫码同步书架”，从微信读书书架导入公众号。'}</li>`;
+  ui.fresh.clear();
+}
+
+$('q').addEventListener('input', e => { ui.q = e.target.value.trim(); ui.page = 0; renderList(); });
+$('prev').addEventListener('click', () => { ui.page--; renderList(); });
+$('next').addEventListener('click', () => { ui.page++; renderList(); });
+$('filter').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  ui.filter = b.dataset.v; ui.page = 0; for (const x of $('filter').children) x.setAttribute('aria-pressed', String(x === b)); renderList();
+});
+$('list').addEventListener('click', e => {
+  const t = e.target.closest('[data-toggle]');
+  if (t) { const a = accounts.find(x => x.id === Number(t.dataset.toggle)); a.on = !a.on;
+    toast(`${a.name} 已${a.on ? '启用' : '停用'}，从下一个新任务起生效`); renderList();
+    document.querySelector(`[data-toggle="${a.id}"]`)?.focus(); return; }
+  const d = e.target.closest('[data-detail]'); if (d) openDetail(Number(d.dataset.detail));
+});
+
+/* ---- Detail drawer ---- */
+function openDetail(id) {
+  const a = accounts.find(x => x.id === id);
+  $('dw-h').textContent = a.name;
+  const l = a.last;
+  const recent = l && l.ok && l.recent ? `<h4>上次读到的文章（部分）</h4><ul class="recent">${l.recent.map(([t, w]) => `<li><span>${esc(t)}</span><span>${w}</span></li>`).join('')}</ul>` : '';
+  $('dw-body').innerHTML = `
+    <div class="note" style="margin-top: 4px">${a.on ? '已启用：新任务会读取这个公众号' : '已停用：新任务不会读取这个公众号'}</div>
+    <h4>最近一次采集</h4>
+    ${l ? `<dl><dt>时间</dt><dd>${l.when}（中国时间）</dd>
+      <dt>结果</dt><dd>${l.ok ? `读到 ${l.got} 篇，最近一篇发布于 ${l.latest}` : `<span style="color: var(--cinnabar)">${esc(l.reason)}</span>`}</dd></dl>
+      <div class="note" style="margin-top: 8px">这是软件那次实际读到的结果，不代表这个公众号在全网的最新发文。</div>` : '<div class="note">还没有采集记录。</div>'}
+    ${recent}
+    <h4>账号信息</h4>
+    <dl><dt>账号编号</dt><dd>${a.mp}</dd><dt>来源</dt><dd>${a.manual ? '手动添加（从文章链接识别）' : '微信读书书架同步'}</dd></dl>
+    <h4>移出名单</h4>
+    <div id="del-zone"><button class="btn danger" id="del">删除这个公众号</button></div>`;
+  $('drawer').hidden = false; $('dw-close').focus();
+  $('del').addEventListener('click', () => {
+    $('del-zone').innerHTML = `<div class="confirm">将“${esc(a.name)}”移出后续采集名单。已采集的文章和已生成的稿件都会保留。
+      <div><button class="btn danger" id="del-yes">确认删除</button><button class="btn quiet" id="del-no">取消</button></div></div>`;
+    $('del-yes').focus();
+    $('del-yes').addEventListener('click', () => { accounts.splice(accounts.indexOf(a), 1); $('drawer').hidden = true; toast(`已删除“${a.name}”，文章和稿件已保留`); renderList(); });
+    $('del-no').addEventListener('click', () => openDetail(id));
+  });
+}
+$('dw-close').addEventListener('click', () => { $('drawer').hidden = true; });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('drawer').hidden = true; });
+
+/* ---- Sync: login → read shelf → choose ---- */
+function stepper(index) {
+  [...$('stepper').children].forEach((li, i) => { li.className = i < index ? 'done' : i === index ? 'now' : ''; });
+}
+function renderSync() {
+  const s = ui.sync, body = $('sync-body');
+  if (s.phase === 'login') {
+    stepper(0);
+    body.innerHTML = `<div class="qr"><div class="code">扫码窗口<br>（正式版在 Edge 中打开）</div>
+      <div><ol><li>已打开一个 Edge 登录窗口，里面有微信读书二维码</li><li>用<b>手机微信</b>扫码，并在手机上确认登录</li><li>登录成功后软件自动读取书架，登录状态加密保存在本机，下次不用再扫</li></ol>
+      <div class="bar-row"><button class="btn primary" id="scan-ok">模拟扫码成功</button><button class="btn" id="scan-new">二维码过期，刷新</button></div>
+      <div class="note shine" style="margin-top: 10px">正在等待扫码…</div></div></div>`;
+    $('scan-ok').addEventListener('click', () => { ui.loggedIn = true; s.phase = 'reading'; renderSync(); });
+    $('scan-new').addEventListener('click', () => toast('已刷新二维码（示例）'));
+  } else if (s.phase === 'reading') {
+    stepper(1);
+    body.innerHTML = `<div class="note shine" style="font-size: 14px">正在读取微信读书书架…</div>
+      <div class="bar-row"><button class="btn quiet" id="read-fail">模拟读取失败</button></div>`;
+    $('read-fail').addEventListener('click', () => { clearTimeout(s.timer); s.phase = 'error'; renderSync(); });
+    s.timer = setTimeout(() => { if (ui.sync === s && s.phase === 'reading') { s.phase = 'choose'; renderSync(); } }, 1600);
+  } else if (s.phase === 'error') {
+    stepper(1);
+    body.innerHTML = `<div class="err">读取书架失败：网络连接超时。现有公众号名单没有任何改动。</div>
+      <div class="bar-row"><button class="btn primary" id="retry">重试读取</button><button class="btn" id="relogin">重新扫码登录</button></div>`;
+    $('retry').addEventListener('click', () => { s.phase = 'reading'; renderSync(); });
+    $('relogin').addEventListener('click', () => { s.phase = 'login'; renderSync(); });
+  } else {
+    stepper(2);
+    const have = new Set(accounts.map(a => a.mp));
+    const fresh = SHELF.filter(([, mp]) => !have.has(mp));
+    body.innerHTML = `<div class="note" style="margin-bottom: 8px">书架上有 ${SHELF.length} 个公众号，其中 <b>${fresh.length}</b> 个还不在名单里。</div>
+      <ul class="pick">${SHELF.map(([n, mp]) => have.has(mp)
+        ? `<li><label class="have"><input type="checkbox" checked disabled><span>${esc(n)}</span><span class="tag have">已在名单，保留原启停状态</span></label></li>`
+        : `<li><label><input type="checkbox" checked data-mp="${mp}" data-name="${esc(n)}"><span>${esc(n)}</span><span class="tag">新增</span></label></li>`).join('')}</ul>
+      <div class="bar-row"><button class="btn" id="all">全选新增</button><span class="grow"></span>
+        <button class="btn quiet" id="cancel">取消</button><button class="btn primary" id="import">导入所选</button></div>`;
+    $('all').addEventListener('click', () => body.querySelectorAll('input[data-mp]').forEach(x => { x.checked = true; }));
+    $('cancel').addEventListener('click', closeSync);
+    $('import').addEventListener('click', () => {
+      const chosen = [...body.querySelectorAll('input[data-mp]:checked')];
+      if (!chosen.length) { toast('请至少勾选一个新增公众号'); return; }
+      for (const x of chosen) { const id = ++seq; accounts.push({ id, name: x.dataset.name, mp: x.dataset.mp, on: true }); ui.fresh.add(id); }
+      closeSync(); ui.filter = 'all'; ui.page = 99; toast(`已导入 ${chosen.length} 个公众号，从下一个新任务起采集`); renderList();
+    });
+  }
+}
+function openSync() {
+  $('add').hidden = true;
+  ui.sync = { phase: ui.loggedIn ? 'reading' : 'login' };
+  $('sync').hidden = false; renderSync(); $('sync').scrollIntoView({ block: 'nearest' });
+}
+function closeSync() { if (ui.sync) clearTimeout(ui.sync.timer); ui.sync = null; $('sync').hidden = true; }
+$('sync-open').addEventListener('click', openSync);
+$('sync-close').addEventListener('click', closeSync);
+
+/* ---- Manual add ---- */
+function bizToMp(link) {
+  let u; try { u = new URL(link.trim()); } catch { return null; }
+  if (u.hostname !== 'mp.weixin.qq.com') return null;
+  const biz = u.searchParams.get('__biz'); if (!biz) return null;
+  try { const n = atob(biz); return /^\d+$/.test(n) ? 'MP_WXS_' + n : null; } catch { return null; }
+}
+$('add-open').addEventListener('click', () => { closeSync(); $('add').hidden = false; $('add-name').focus(); });
+$('add-close').addEventListener('click', () => { $('add').hidden = true; });
+$('add-link').addEventListener('input', e => {
+  const mp = bizToMp(e.target.value); const h = $('add-hint');
+  if (!e.target.value.trim()) { h.className = 'hint'; h.textContent = '软件从链接里的账号编号（__biz）识别是哪个公众号，不按名称猜测；名称需和公众号实际名称一致。'; }
+  else if (mp) { h.className = 'hint ok'; h.textContent = '已识别账号编号：' + mp; }
+  else { h.className = 'hint bad'; h.textContent = '这个链接里没有账号编号。请在微信里打开该公众号的任一文章，复制完整链接（含 __biz）。'; }
+});
+$('add-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const name = $('add-name').value.trim(), mp = bizToMp($('add-link').value), h = $('add-hint');
+  if (!name) { h.className = 'hint bad'; h.textContent = '请填写公众号名称。'; $('add-name').focus(); return; }
+  if (!mp) { h.className = 'hint bad'; h.textContent = '请粘贴该公众号任一文章的完整链接（含 __biz）。'; $('add-link').focus(); return; }
+  if (accounts.some(a => a.mp === mp)) { h.className = 'hint bad'; h.textContent = '这个公众号已经在名单里了。'; return; }
+  const id = ++seq; accounts.push({ id, name, mp, on: true, manual: true }); ui.fresh.add(id);
+  $('add-form').reset(); $('add').hidden = true; ui.filter = 'all'; ui.page = 99; toast(`已添加“${name}”，从下一个新任务起采集`); renderList();
+});
+
+document.querySelectorAll('[data-later]').forEach(b => b.addEventListener('click', () => toast(`“${b.firstChild.textContent.trim()}”页会在后续逐页交付`)));
+document.querySelector('[data-done]').addEventListener('click', () => toast('工作台已确认，整合时会在同一个软件里切换'));
+renderList();
+</script>

@@ -13,6 +13,25 @@ def set_app_id():
         ctypes.WinDLL("shell32").SetCurrentProcessExplicitAppUserModelID("WeWriter.Desktop")
 
 
+def set_dpi_aware():
+    """Render at the screen's real resolution instead of letting Windows stretch a 96-DPI bitmap (blurry at 125%/150%).
+
+    Must run before the first window is created; later calls cannot change the process mode.
+    """
+    if os.name != "nt":
+        return
+    user32 = ctypes.WinDLL("user32")
+    try:
+        if user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)):  # per-monitor v2, Windows 10 1703+
+            return
+    except AttributeError:
+        pass
+    try:
+        ctypes.WinDLL("shcore").SetProcessDpiAwareness(2)
+    except (AttributeError, OSError):
+        user32.SetProcessDPIAware()
+
+
 def single_instance(name="WeWriter.Desktop"):
     global _mutex
     if os.name != "nt":

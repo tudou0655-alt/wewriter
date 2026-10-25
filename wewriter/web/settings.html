@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WeWriter 设置</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap" media="print" onload="this.media='all'">
+<style>
+/* Layout: same rail and column; settings grouped in panels, a save bar that appears only with changes. */
+:root {
+  --ground: #eef2f1; --sheet: #ffffff; --ink: #15232a; --ink-2: #56656d; --rule: #d9e1df;
+  --jade: #0d6b5b; --jade-soft: #e3f1ed; --cinnabar: #b9452f; --cinnabar-soft: #f8e6e1;
+  --amber: #8a5a12; --amber-soft: #f7efdc; --focus: #1f7a68; --glint: #8fe6d1; --off: #c4cecb;
+  --font-display: "Noto Serif SC", "Songti SC", "SimSun", serif;
+  --font-body: "Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0e1416; --sheet: #162024; --ink: #e6eeeb; --ink-2: #9cb0ab; --rule: #2a3a3e;
+    --jade: #63c6ae; --jade-soft: #173a33; --cinnabar: #f08c74; --cinnabar-soft: #3d2520;
+    --amber: #e8c27a; --amber-soft: #3a3020; --focus: #63c6ae; --glint: #e6fff8; --off: #3a4a4e; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0e1416; --sheet: #162024; --ink: #e6eeeb; --ink-2: #9cb0ab; --rule: #2a3a3e;
+  --jade: #63c6ae; --jade-soft: #173a33; --cinnabar: #f08c74; --cinnabar-soft: #3d2520;
+  --amber: #e8c27a; --amber-soft: #3a3020; --focus: #63c6ae; --glint: #e6fff8; --off: #3a4a4e; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.6; }
+button, select, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.app { display: grid; grid-template-columns: 196px minmax(0, 1fr); min-height: 100%; }
+.rail { background: var(--sheet); border-right: 1px solid var(--rule); padding-block: 22px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 16px; display: flex; flex-direction: column; gap: 28px; }
+.brand { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; }
+.brand b { font-family: var(--font-display); font-size: 22px; letter-spacing: .02em; }
+.brand span { color: var(--ink-2); font-size: 12px; }
+.nav { display: flex; flex-direction: column; gap: 4px; }
+.nav button { all: unset; cursor: pointer; padding: 9px 12px; border-radius: 8px; color: var(--ink-2); display: flex; justify-content: space-between; align-items: center; }
+.nav button:hover { background: var(--ground); color: var(--ink); }
+.nav button[aria-current="page"] { background: var(--jade-soft); color: var(--jade); font-weight: 700; }
+.nav small { font-size: 11px; color: var(--ink-2); font-weight: 400; }
+.rail .foot { margin-top: auto; padding-left: 10px; color: var(--ink-2); font-size: 12px; }
+main { padding-block: 28px 110px; padding-inline: clamp(16px, 3vw, 48px); min-width: 0; }
+.wrap { max-width: 1080px; margin-inline: auto; display: grid; gap: 18px; }
+.top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacing: .02em; }
+.sample { font-size: 12px; color: var(--amber); background: var(--amber-soft); padding: 2px 8px; border-radius: 999px; }
+.panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius); padding: 20px 22px; min-width: 0; display: grid; gap: 16px; }
+.panel h2 { font-size: 16px; margin: 0; font-weight: 700; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.panel h2 small { font-size: 12px; color: var(--ink-2); font-weight: 400; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.field { display: grid; gap: 6px; min-width: 0; }
+.field > label, .field > .lbl { font-size: 13px; font-weight: 500; }
+.hint { font-size: 12px; color: var(--ink-2); }
+.hint.ok { color: var(--jade); }
+.hint.bad { color: var(--cinnabar); }
+.input, .select, textarea { border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 8px 12px; width: 100%; }
+textarea { min-height: 84px; resize: vertical; }
+.select { padding-right: 30px; appearance: none; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-2) 50%), linear-gradient(135deg, var(--ink-2) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 52%, calc(100% - 10px) 52%; background-size: 5px 5px; background-repeat: no-repeat; }
+.input:focus, .select:focus, textarea:focus { border-color: var(--jade); outline: none; box-shadow: 0 0 0 3px var(--jade-soft); }
+.input.bad { border-color: var(--cinnabar); }
+.with-btn { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.btn { cursor: pointer; border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 7px 14px; white-space: nowrap; }
+.btn:hover { border-color: var(--ink-2); }
+.btn:disabled { cursor: not-allowed; opacity: .5; }
+.btn.primary { background: var(--jade); border-color: var(--jade); color: var(--sheet); font-weight: 700; }
+.btn.quiet { border-color: transparent; color: var(--ink-2); }
+.btn.quiet:hover { color: var(--ink); border-color: var(--rule); }
+.btn.danger { color: var(--cinnabar); border-color: var(--cinnabar-soft); }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chips button { all: unset; cursor: pointer; font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--rule); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.chips button:hover { border-color: var(--jade); color: var(--jade); }
+.chips button[aria-pressed="true"] { background: var(--jade-soft); border-color: var(--jade); color: var(--jade); font-weight: 700; }
+.reco { background: var(--jade-soft); border-radius: 8px; padding: 10px 12px; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; font-size: 13px; }
+.reco b { color: var(--jade); }
+details { border-top: 1px solid var(--rule); padding-top: 12px; }
+details > summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
+details[open] > summary { margin-bottom: 14px; }
+details .inner { display: grid; gap: 16px; }
+.toggle-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px solid var(--rule); }
+.toggle-row:first-child { border-top: 0; padding-top: 0; }
+.toggle-row b { font-weight: 500; }
+.switch { display: inline-flex; gap: 8px; align-items: center; cursor: pointer; background: none; border: 0; padding: 4px; color: var(--ink-2); font-size: 13px; }
+.switch .track { width: 36px; height: 20px; border-radius: 999px; background: var(--off); position: relative; transition: background .18s; }
+.switch .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--sheet); transition: transform .18s; box-shadow: 0 1px 2px rgb(0 0 0 / .2); }
+.switch[aria-checked="true"] .track { background: var(--jade); }
+.switch[aria-checked="true"] .track::after { transform: translateX(16px); }
+.status { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.svc { border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; display: grid; gap: 4px; }
+.svc b { font-weight: 500; }
+.svc .st { font-size: 13px; display: flex; gap: 6px; align-items: center; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--off); }
+.dot.ok { background: var(--jade); }
+.dot.bad { background: var(--cinnabar); }
+.svc .st.run { color: var(--jade); }
+.shine { background: linear-gradient(100deg, var(--jade) 0%, var(--jade) 38%, var(--glint) 50%, var(--jade) 62%, var(--jade) 100%);
+  background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: glint 1.8s linear infinite; }
+@keyframes glint { from { background-position: 125% 0; } to { background-position: -125% 0; } }
+.inline { border-radius: 8px; padding: 12px; display: grid; gap: 10px; font-size: 13px; }
+.inline.warn { background: var(--amber-soft); color: var(--amber); }
+.inline.bad { background: var(--cinnabar-soft); color: var(--cinnabar); }
+.inline .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.maint { display: flex; gap: 8px; flex-wrap: wrap; }
+.keys { display: grid; gap: 8px; }
+.keys .row { display: flex; justify-content: space-between; gap: 12px; align-items: center; font-size: 13px; padding: 6px 0; border-top: 1px solid var(--rule); flex-wrap: wrap; }
+.keys .row:first-child { border-top: 0; }
+.savebar { position: fixed; left: 196px; right: 0; bottom: 0; background: var(--sheet); border-top: 1px solid var(--rule); padding: 12px 32px calc(12px + env(safe-area-inset-bottom, 0px)); padding-right: max(32px, env(safe-area-inset-right, 0px)); display: flex; gap: 12px; align-items: center; box-shadow: 0 -8px 24px rgb(0 0 0 / .08); z-index: 15; }
+.savebar span { flex: 1; color: var(--ink-2); font-size: 13px; }
+.savebar span b { color: var(--ink); }
+.toast { position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--sheet); padding: 8px 16px; border-radius: 8px; font-size: 13px; z-index: 30; max-width: calc(100% - 32px); }
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail { flex-direction: row; align-items: center; padding-block: 10px; border-right: 0; border-bottom: 1px solid var(--rule); gap: 14px; overflow-x: auto; }
+  .brand span, .rail .foot, .nav small { display: none; }
+  .nav { flex-direction: row; }
+  main { padding-left: max(16px, env(safe-area-inset-left, 0px)); }
+  .grid2, .status { grid-template-columns: minmax(0, 1fr); }
+  .savebar { left: 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) { .shine { animation: none; color: var(--jade); background: none; } .switch .track, .switch .track::after { transition: none; } }
+</style>
+
+<div class="app">
+  <aside class="rail">
+    <div class="brand"><b>WeWriter</b><span>公众号内容工作台</span></div>
+    <nav class="nav" aria-label="页面" id="nav"></nav>
+    <div class="foot" id="foot"></div>
+  </aside>
+
+  <main>
+    <div class="wrap">
+      <div class="top"><h1>设置</h1></div>
+
+      <!-- Models -->
+      <section class="panel" aria-labelledby="m-h">
+        <h2 id="m-h">模型<small>写作、二审、摘要和联网搜索</small></h2>
+        <div class="reco" id="reco"><span>推荐：文档处理用 <b>deepseek-v4-pro</b>，联网搜索用 <b>gpt-5.6-terra</b>（性能与价格均衡；更省钱可选 <b>gpt-6-luna</b>）</span>
+          <button class="btn" id="reco-apply">一键填入推荐</button></div>
+        <div class="grid2">
+          <div class="field"><label for="writer">写作与二审</label>
+            <select class="select" id="writer" data-k="writer"></select>
+            <span class="hint" id="writer-hint"></span></div>
+          <div class="field"><label for="writer-key" id="writer-key-l">API Key</label>
+            <div class="with-btn"><input class="input" id="writer-key" type="password" autocomplete="off" placeholder="已配置，留空保留原 Key"><button class="btn" data-reveal="writer-key">显示</button></div>
+            <span class="hint ok" id="writer-key-st">已配置</span></div>
+        </div>
+        <div class="field" id="custom-box" hidden><label for="custom">自定义模型 ID</label>
+          <input class="input" id="custom" data-k="custom" placeholder="填写服务支持的模型 ID，例如 deepseek-v4-pro" autocomplete="off"></div>
+        <details><summary>更多模型配置</summary><div class="inner">
+          <div class="grid2">
+            <div class="field"><label for="summary">摘要与分析</label><select class="select" id="summary" data-k="summary"></select>
+              <span class="hint">逐篇提取重点和证据，调用次数最多，可选便宜一些的模型</span></div>
+            <div class="field"><label for="search">联网搜索（需要 OpenAI）</label><select class="select" id="search" data-k="search"></select>
+              <span class="hint">使用 OpenAI 的网页搜索，DeepSeek 不提供这项能力</span></div>
+          </div>
+          <div class="grid2">
+            <div class="field"><label for="oa-key">OpenAI API Key</label>
+              <div class="with-btn"><input class="input" id="oa-key" type="password" autocomplete="off" placeholder="未配置"><button class="btn" data-reveal="oa-key">显示</button></div>
+              <span class="hint bad" id="oa-st">未配置：联网搜索无法使用</span></div>
+            <div class="field"><label for="ds-key">DeepSeek API Key</label>
+              <div class="with-btn"><input class="input" id="ds-key" type="password" autocomplete="off" placeholder="已配置，留空保留原 Key"><button class="btn" data-reveal="ds-key">显示</button></div>
+              <span class="hint ok">已配置</span></div>
+          </div>
+        </div></details>
+        <details><summary>接口地址</summary><div class="inner grid2">
+          <div class="field"><label for="oa-url">OpenAI 接口地址</label><input class="input" id="oa-url" data-k="oaurl" value="https://api.openai.com/v1"></div>
+          <div class="field"><label for="ds-url">DeepSeek 接口地址</label><input class="input" id="ds-url" data-k="dsurl" value="https://api.deepseek.com"></div>
+        </div></details>
+      </section>
+
+      <!-- Collection services -->
+      <section class="panel" aria-labelledby="c-h">
+        <h2 id="c-h">采集服务<small>提供文章列表和阅读量，按次计费</small></h2>
+        <div class="grid2">
+          <div class="field"><label for="djl-key">极致了 Key（优先使用）</label>
+            <div class="with-btn"><input class="input" id="djl-key" type="password" autocomplete="off" placeholder="已配置，留空保留原 Key"><button class="btn" data-reveal="djl-key">显示</button></div>
+            <span class="hint ok">已配置 · 每次约 0.14 元</span></div>
+          <div class="field"><label for="ei-key">EveryInfra Key（备用）</label>
+            <div class="with-btn"><input class="input" id="ei-key" type="password" autocomplete="off" placeholder="已配置，留空保留原 Key"><button class="btn" data-reveal="ei-key">显示</button></div>
+            <span class="hint ok">已配置 · 极致了失败时才使用</span></div>
+        </div>
+      </section>
+
+      <!-- Writing -->
+      <section class="panel" aria-labelledby="w-h">
+        <h2 id="w-h">写作偏好<small>对新任务生效</small></h2>
+        <div class="grid2">
+          <div class="field"><label for="words">目标篇幅（字）</label>
+            <input class="input" id="words" data-k="words" inputmode="numeric" value="1500">
+            <div class="chips" id="word-chips"></div>
+            <span class="hint" id="words-hint">可填 200—20000 的任意整数；这是写作目标，实际字数会有浮动</span></div>
+          <div class="field"><label for="style">写作风格</label>
+            <select class="select" id="style" data-k="style">
+              <option>政策申报实务</option><option>参考原文风格</option><option>通俗自然</option><option>专业简洁</option><option value="custom">自定义…</option></select>
+            <span class="hint" id="style-hint"></span>
+            <textarea id="style-custom" data-k="stylecustom" hidden placeholder="用一两句话描述你想要的风格"></textarea></div>
+        </div>
+        <div class="field"><label for="extra">补充要求（可选）</label>
+          <textarea id="extra" data-k="extra" placeholder="例如：面向工程从业者，少用术语，段落简短。"></textarea></div>
+      </section>
+
+      <!-- Export -->
+      <section class="panel" aria-labelledby="e-h">
+        <h2 id="e-h">导出</h2>
+        <div class="grid2">
+          <div class="field"><label for="fmt">默认格式</label>
+            <select class="select" id="fmt" data-k="fmt"><option value="docx">Word（.docx）</option><option value="md">Markdown（.md）</option><option value="txt">纯文本（.txt）</option></select></div>
+          <div class="field"><span class="lbl">保存位置</span>
+            <div class="with-btn"><input class="input" id="dir" data-k="dir" readonly value="每次导出时选择"><button class="btn" id="dir-pick">选择文件夹</button></div>
+            <button class="btn quiet" id="dir-each" style="justify-self: start" hidden>改回每次选择</button></div>
+        </div>
+      </section>
+
+      <!-- Health -->
+      <section class="panel" aria-labelledby="h-h">
+        <h2 id="h-h">服务状态<button class="btn" id="check">检查连接</button></h2>
+        <div class="status">
+          <div class="svc"><b>文章采集</b><span class="st" id="st-collect"><i class="dot"></i>未检查</span><span class="hint">读取微信读书书架，不计费</span></div>
+          <div class="svc"><b>文章生成</b><span class="st" id="st-model"><i class="dot"></i>未检查</span><span class="hint">向写作模型发一次很短的测试，会产生少量费用</span></div>
+        </div>
+        <div id="check-box"></div>
+        <details><summary>连接异常时怎么办</summary><div class="inner hint" style="font-size: 13px">
+          <div><b style="color: var(--ink)">文章采集异常：</b>先到“公众号”页确认已扫码登录；网络正常但仍失败时，稍后再试。</div>
+          <div><b style="color: var(--ink)">文章生成异常：</b>检查 Key 是否正确、账户是否有余额、模型 ID 是否填写正确；提示 401/402/403 多半是 Key 或余额问题。</div>
+          <div>仍无法解决时，联系对应服务的提供方。</div></div></details>
+      </section>
+
+      <!-- Maintenance -->
+      <section class="panel" aria-labelledby="x-h">
+        <details><summary id="x-h">更多设置与维护</summary><div class="inner">
+          <div>
+            <div class="toggle-row"><div><b>每日自动采集和生成</b><div class="hint">中国时间每天定时运行；电脑需开机联网</div></div>
+              <div style="display: flex; gap: 10px; align-items: center"><input class="input" id="sched-time" data-k="schedtime" value="09:00" style="width: 90px" aria-label="执行时间"><button class="switch" role="switch" aria-checked="false" data-sw="sched"><span class="track"></span></button></div></div>
+            <div class="toggle-row"><div><b>生成后 AI 二审</b><div class="hint">对照原文复核事实和表达；每篇多一次写作模型调用</div></div><button class="switch" role="switch" aria-checked="true" data-sw="review"><span class="track"></span></button></div>
+            <div class="toggle-row"><div><b>识别图片型文章</b><div class="hint">文字不足 100 字时用 OpenAI 识图，额外计费；关闭时由下一篇补位</div></div><button class="switch" role="switch" aria-checked="false" data-sw="vision"><span class="track"></span></button></div>
+            <div class="toggle-row"><div><b>允许重新采集已清理的文章</b><div class="hint">开启后，清理过的文章可能再次被选去写作</div></div><button class="switch" role="switch" aria-checked="false" data-sw="recollect"><span class="track"></span></button></div>
+            <div class="toggle-row"><div><b>开机自动启动</b><div class="hint">登录 Windows 时在托盘启动</div></div><button class="switch" role="switch" aria-checked="false" data-sw="startup"><span class="track"></span></button></div>
+          </div>
+          <div class="grid2">
+            <div class="field"><label for="limit">每个公众号读取上限</label><input class="input" id="limit" data-k="limit" inputmode="numeric" value="24"><span class="hint">1—160 篇；时间范围内的文章超过上限时会提示</span></div>
+            <div class="field"><label for="minreads">最低阅读量</label><input class="input" id="minreads" data-k="minreads" inputmode="numeric" value="0"><span class="hint">0 表示不设门槛；阅读量未知的文章不参与热度排名</span></div>
+          </div>
+          <div class="field"><span class="lbl">数据</span>
+            <div class="maint"><button class="btn" data-act="已备份数据库到你选择的位置（不含 Key）">备份数据库</button><button class="btn" data-act="恢复前已自动保存当前数据库副本，并暂停定时任务（示例）">恢复数据库</button><button class="btn" data-act="已打开数据目录（示例）">打开数据目录</button></div>
+            <div class="maint"><button class="btn danger" id="clear-data">一键清除后台数据</button></div><p class="hint" id="clear-result" role="status">清除文章、稿件、任务记录和缓存，保留公众号及配置；清理前自动备份。</p>
+            <span class="hint">版本 v0.10.4 · 数据目录 C:\Users\…\AppData\Local\WeWriter · 备份不包含 API Key</span></div>
+          <div class="field"><span class="lbl">已保存的 Key</span>
+            <div class="keys" id="keys"></div></div>
+        </div></details>
+      </section>
+    </div>
+  </main>
+</div>
+<div class="savebar" id="savebar" hidden role="region" aria-label="保存设置">
+  <span id="save-text"></span><button class="btn quiet" id="undo">撤销修改</button><button class="btn primary" id="save">保存设置</button>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script src="common.js"></script>
+<script src="settings.js"></script>
+</html>

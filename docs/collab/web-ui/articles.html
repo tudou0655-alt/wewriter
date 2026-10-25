@@ -1,0 +1,273 @@
+<title>WeWriter 文章库</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap">
+<style>
+/* Layout: same rail and column as 工作台; filters on one line, article rows, a reading panel on the right. */
+:root {
+  --ground: #eef2f1; --sheet: #ffffff; --ink: #15232a; --ink-2: #56656d; --rule: #d9e1df;
+  --jade: #0d6b5b; --jade-soft: #e3f1ed; --cinnabar: #b9452f; --cinnabar-soft: #f8e6e1;
+  --amber: #8a5a12; --amber-soft: #f7efdc; --focus: #1f7a68; --glint: #8fe6d1;
+  --font-display: "Noto Serif SC", "Songti SC", "SimSun", serif;
+  --font-body: "Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0e1416; --sheet: #162024; --ink: #e6eeeb; --ink-2: #9cb0ab; --rule: #2a3a3e;
+    --jade: #63c6ae; --jade-soft: #173a33; --cinnabar: #f08c74; --cinnabar-soft: #3d2520;
+    --amber: #e8c27a; --amber-soft: #3a3020; --focus: #63c6ae; --glint: #e6fff8; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0e1416; --sheet: #162024; --ink: #e6eeeb; --ink-2: #9cb0ab; --rule: #2a3a3e;
+  --jade: #63c6ae; --jade-soft: #173a33; --cinnabar: #f08c74; --cinnabar-soft: #3d2520;
+  --amber: #e8c27a; --amber-soft: #3a3020; --focus: #63c6ae; --glint: #e6fff8; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.6; }
+button, select, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.app { display: grid; grid-template-columns: 196px minmax(0, 1fr); min-height: 100%; }
+.rail { background: var(--sheet); border-right: 1px solid var(--rule); padding-block: 22px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 16px; display: flex; flex-direction: column; gap: 28px; }
+.brand { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; }
+.brand b { font-family: var(--font-display); font-size: 22px; letter-spacing: .02em; }
+.brand span { color: var(--ink-2); font-size: 12px; }
+.nav { display: flex; flex-direction: column; gap: 4px; }
+.nav button { all: unset; cursor: pointer; padding: 9px 12px; border-radius: 8px; color: var(--ink-2); display: flex; justify-content: space-between; align-items: center; }
+.nav button:hover { background: var(--ground); color: var(--ink); }
+.nav button[aria-current="page"] { background: var(--jade-soft); color: var(--jade); font-weight: 700; }
+.nav small { font-size: 11px; color: var(--ink-2); font-weight: 400; }
+.rail .foot { margin-top: auto; padding-left: 10px; color: var(--ink-2); font-size: 12px; }
+main { padding-block: 28px 48px; padding-left: 32px; padding-right: max(16px, env(safe-area-inset-right, 0px)); min-width: 0; }
+.wrap { max-width: 980px; display: grid; gap: 16px; }
+.top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacing: .02em; }
+.sample { font-size: 12px; color: var(--amber); background: var(--amber-soft); padding: 2px 8px; border-radius: 999px; }
+.note { color: var(--ink-2); font-size: 13px; }
+.panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius); padding: 6px 22px; min-width: 0; }
+.btn { cursor: pointer; border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 7px 14px; white-space: nowrap; }
+.btn:hover { border-color: var(--ink-2); }
+.btn:disabled { cursor: not-allowed; opacity: .5; }
+.btn.primary { background: var(--jade); border-color: var(--jade); color: var(--sheet); font-weight: 700; }
+.btn.quiet { border-color: transparent; color: var(--ink-2); }
+.btn.quiet:hover { color: var(--ink); border-color: var(--rule); }
+a.btn { text-decoration: none; display: inline-block; color: var(--ink); }
+
+/* Filters */
+.filters { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 10px; }
+.input, .select { border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 8px 12px; width: 100%; }
+.select { padding-right: 30px; appearance: none; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-2) 50%), linear-gradient(135deg, var(--ink-2) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 52%, calc(100% - 10px) 52%; background-size: 5px 5px; background-repeat: no-repeat; }
+.input:focus, .select:focus { border-color: var(--jade); outline: none; box-shadow: 0 0 0 3px var(--jade-soft); }
+.meta-row { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* Article rows */
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 14px 0; border-top: 1px solid var(--rule); }
+.list li:first-child { border-top: 0; }
+.list .t { font-weight: 500; font-size: 15px; overflow-wrap: anywhere; text-wrap: pretty; }
+.list .m { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.list .stats { display: flex; gap: 18px; margin-top: 4px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.list .stats span { color: var(--ink-2); }
+.list .stats b { color: var(--ink); font-weight: 700; margin-left: 4px; }
+.list .stats .unknown b { color: var(--ink-2); font-weight: 400; }
+.st-used { color: var(--jade); }
+.st-wait { color: var(--amber); }
+.st-bad { color: var(--cinnabar); }
+.empty { color: var(--ink-2); font-size: 13px; padding: 22px 0; text-align: center; }
+.pager { display: flex; justify-content: space-between; align-items: center; color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+.pager div { display: flex; gap: 8px; }
+
+/* Reading panel */
+.drawer { position: fixed; inset: 0 0 0 auto; width: min(640px, 100%); background: var(--sheet); border-left: 1px solid var(--rule); padding: 22px 28px calc(28px + env(safe-area-inset-bottom, 0px)); padding-right: max(28px, env(safe-area-inset-right, 0px)); overflow-y: auto; box-shadow: -18px 0 40px rgb(0 0 0 / .12); z-index: 20; }
+.dw-top { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 14px; }
+.drawer h3 { font-family: var(--font-display); font-size: 23px; line-height: 1.4; margin: 0 0 6px; text-wrap: balance; }
+.byline { color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.figs { display: flex; gap: 22px; margin: 14px 0 4px; font-variant-numeric: tabular-nums; }
+.figs div { display: grid; }
+.figs b { font-size: 22px; font-family: var(--font-display); }
+.figs span { font-size: 12px; color: var(--ink-2); }
+.figs .unknown b { color: var(--ink-2); font-size: 18px; }
+.body { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--rule); font-size: 15px; line-height: 1.9; }
+.body p { margin: 0 0 1em; max-width: 36em; }
+.body h4 { font-size: 16px; margin: 1.4em 0 .5em; }
+.pic { background: repeating-linear-gradient(45deg, var(--ground) 0 8px, transparent 8px 16px); border: 1px dashed var(--rule); border-radius: 8px; height: 140px; max-width: 100%; display: grid; place-items: center; color: var(--ink-2); font-size: 12px; margin: 0 0 1em; }
+.alert { background: var(--cinnabar-soft); color: var(--cinnabar); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 16px; }
+.wait { background: var(--amber-soft); color: var(--amber); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 16px; }
+details { margin-top: 18px; border-top: 1px solid var(--rule); padding-top: 12px; }
+summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
+details dl { display: grid; grid-template-columns: 8em minmax(0, 1fr); gap: 8px 12px; font-size: 13px; margin: 12px 0 0; }
+details dt { color: var(--ink-2); }
+details dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--sheet); padding: 8px 16px; border-radius: 8px; font-size: 13px; z-index: 30; max-width: calc(100% - 32px); }
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail { flex-direction: row; align-items: center; padding-block: 10px; border-right: 0; border-bottom: 1px solid var(--rule); gap: 14px; overflow-x: auto; }
+  .brand span, .rail .foot, .nav small { display: none; }
+  .nav { flex-direction: row; }
+  main { padding-left: max(16px, env(safe-area-inset-left, 0px)); }
+  .filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .filters .input { grid-column: 1 / -1; }
+  .list li { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
+
+<div class="app">
+  <aside class="rail">
+    <div class="brand"><b>WeWriter</b><span>公众号内容工作台</span></div>
+    <nav class="nav" aria-label="页面">
+      <button data-done>工作台<small>已确认</small></button>
+      <button data-done>公众号<small>已确认</small></button>
+      <button aria-current="page">文章库</button>
+      <button data-later>稿件库<small>下一页</small></button>
+      <button data-later>设置<small>待交付</small></button>
+    </nav>
+    <div class="foot">v0.10.4 · 试用页面</div>
+  </aside>
+
+  <main>
+    <div class="wrap">
+      <div class="top"><h1>文章库</h1><span class="sample">示例数据，可点击试用</span></div>
+      <div class="note">采集到的公众号文章都在这里。任务会按阅读量从这里选文；“未知”表示采集服务没有返回该数字，不等于 0，排在有数字的文章之后。</div>
+
+      <div class="filters">
+        <input class="input" id="q" type="search" placeholder="搜索文章标题" aria-label="搜索文章标题">
+        <select class="select" id="acct" aria-label="按公众号筛选"></select>
+        <select class="select" id="range" aria-label="按发布时间筛选">
+          <option value="all">全部时间</option><option value="today">今天</option><option value="3">近 3 天</option><option value="7">近 7 天</option>
+        </select>
+        <select class="select" id="sort" aria-label="排序">
+          <option value="reads">阅读量优先</option><option value="likes">点赞量优先</option><option value="time">最新发布</option>
+        </select>
+      </div>
+      <div class="meta-row"><span id="total"></span><span>发布时间均为中国时间</span></div>
+      <section class="panel" aria-label="文章列表"><ul class="list" id="list"></ul></section>
+      <div class="pager" id="pager"><span id="pageinfo"></span><div><button class="btn" id="prev">上一页</button><button class="btn" id="next">下一页</button></div></div>
+    </div>
+  </main>
+</div>
+
+<aside class="drawer" id="drawer" hidden aria-labelledby="dw-h">
+  <div class="dw-top"><span class="byline" id="dw-acct"></span><div><a class="btn" id="dw-open" href="#" target="_blank" rel="noopener">打开原文</a> <button class="btn quiet" id="dw-close">关闭</button></div></div>
+  <h3 id="dw-h"></h3>
+  <div class="byline" id="dw-by"></div>
+  <div class="figs" id="dw-figs"></div>
+  <div id="dw-state"></div>
+  <div class="body" id="dw-body"></div>
+  <details><summary>采集详情</summary><dl id="dw-meta"></dl></details>
+</aside>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const pad = n => String(n).padStart(2, '0');
+const HOUR = 3600e3;
+function cnNow() { return new Date(Date.now() + (new Date().getTimezoneOffset() + 480) * 60000); }
+function stamp(d, year) { return `${year ? d.getFullYear() + '-' : ''}${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+
+const ACCTS = ['惠企策论', '中企讯重大投资项目资讯', '悠米一下', '咨询日记', '杜工谈谈'];
+const TITLES = [
+  '工信部｜防范不良中介机构影响专精特新申报', '2026年｜国家级单项冠军企业申报评审要点', '节能降碳专项：供热系统降碳改造项目申报',
+  '从“被排除”到“重点支持”：平板玻璃节能降碳的中央资金申报路径', '全过程工程咨询，开始行动了！', '贵州133万产业大招商项目谋划编制 中标了！',
+  '做项目申报，我手机里常年置顶的这些官方号', '国家到底给不给钱？专精特新的“钱规则”', '城市更新 又来活儿了',
+  '国际咨询联合体 拿下近1200万融资全过程咨询服务！', '“专精特新”这四个字，到底是从哪冒出来的？', '白名单｜还有哪些“科技创新平台基地”',
+  '2027年中央预算内投资节能降碳专项', '今天看到文件，工信部要建专精特新赋能中心', '国家专精特新小巨人与负面清单政策冲突，不发补贴了？',
+  '项目成本控制，先从哪些环节入手', '产业补贴申报，企业容易忽略的细节', '工程咨询服务的几个常见问题', '新政策落地，企业申报前要确认哪些条件？',
+  '园区招商：怎么写出一份能过会的可研报告', '数字化转型补助，今年怎么申报', '高新技术企业认定，这三处最容易被退回',
+  '设备更新贷款贴息，哪些项目能享受', '县域商业体系建设资金，申报窗口开了', '中小企业特色产业集群名单公布'];
+const now = Date.now();
+const articles = TITLES.map((t, i) => {
+  const unknown = i === 7 || i === 16;            // service returned no count
+  const zero = i === 20;                          // a real 0
+  const reads = unknown ? null : zero ? 0 : Math.round(5200 * Math.pow(0.86, i) + (i * 37) % 180);
+  const likes = unknown ? null : zero ? 0 : Math.round((reads || 0) / 160 + (i % 5));
+  const state = i === 0 || i === 4 ? 'used' : i === 11 ? 'bad' : i % 4 === 3 ? 'nobody' : 'ok';
+  return { id: i + 1, t, acct: ACCTS[i % ACCTS.length], when: now - (i * 7.3 + 1) * HOUR, reads, likes, state };
+});
+const ui = { q: '', acct: 'all', range: 'all', sort: 'reads', page: 0 };
+const PER = 10;
+
+$('acct').innerHTML = '<option value="all">全部公众号</option>' + ACCTS.map(a => `<option>${a}</option>`).join('');
+function toast(text) { const t = $('toast'); t.textContent = text; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, 2600); }
+const STATES = { used: ['已用于生成稿件', 'st-used'], ok: ['未使用', ''], nobody: ['正文未获取', 'st-wait'], bad: ['正文获取失败', 'st-bad'] };
+const fmt = v => v === null ? '未知' : v.toLocaleString();
+function cnDate(ms) { return new Date(ms + (new Date().getTimezoneOffset() + 480) * 60000); }
+
+function filtered() {
+  const today = cnNow(); today.setHours(0, 0, 0, 0);
+  const startToday = now - (cnNow() - today);
+  let rows = articles.filter(a => (!ui.q || a.t.includes(ui.q)) && (ui.acct === 'all' || a.acct === ui.acct) &&
+    (ui.range === 'all' || (ui.range === 'today' ? a.when >= startToday : a.when >= now - Number(ui.range) * 24 * HOUR)));
+  const key = { reads: 'reads', likes: 'likes' }[ui.sort];
+  // Sort the whole result before paging; unknown (null) goes after every real number, 0 included.
+  rows.sort((x, y) => key ? ((x[key] === null) - (y[key] === null) || (y[key] ?? 0) - (x[key] ?? 0) || y.when - x.when) : y.when - x.when);
+  return rows;
+}
+
+function render() {
+  const rows = filtered();
+  const pages = Math.max(1, Math.ceil(rows.length / PER));
+  ui.page = Math.min(ui.page, pages - 1);
+  $('total').textContent = `共 ${rows.length} 篇` + (rows.length !== articles.length ? `（文章库共 ${articles.length} 篇）` : '');
+  const part = rows.slice(ui.page * PER, ui.page * PER + PER);
+  $('list').innerHTML = part.length ? part.map(a => {
+    const [label, cls] = STATES[a.state];
+    return `<li><div>
+        <div class="t">${esc(a.t)}</div>
+        <div class="m"><span>${a.acct}</span><span>${stamp(cnDate(a.when))}</span><span class="${cls}">${label}</span></div>
+        <div class="stats"><span class="${a.reads === null ? 'unknown' : ''}">阅读<b>${fmt(a.reads)}</b></span><span class="${a.likes === null ? 'unknown' : ''}">点赞<b>${fmt(a.likes)}</b></span></div>
+      </div><button class="btn" data-open="${a.id}">${a.state === 'nobody' || a.state === 'bad' ? '查看详情' : '查看文章'}</button></li>`;
+  }).join('') : `<li class="empty">没有符合条件的文章。可以换个关键词，或把时间范围放宽。</li>`;
+  $('pager').hidden = pages <= 1;
+  $('pageinfo').textContent = `第 ${ui.page + 1}/${pages} 页 · 每页 ${PER} 篇`;
+  $('prev').disabled = ui.page === 0; $('next').disabled = ui.page >= pages - 1;
+}
+
+$('q').addEventListener('input', e => { ui.q = e.target.value.trim(); ui.page = 0; render(); });
+for (const [id, key] of [['acct', 'acct'], ['range', 'range'], ['sort', 'sort']])
+  $(id).addEventListener('change', e => { ui[key] = e.target.value; ui.page = 0; render(); });
+$('prev').addEventListener('click', () => { ui.page--; render(); window.scrollTo({ top: 0 }); });
+$('next').addEventListener('click', () => { ui.page++; render(); window.scrollTo({ top: 0 }); });
+
+const BODY = [
+  '<p>近日，工业和信息化部办公厅印发通知，要求进一步防范不良中介机构影响专精特新中小企业培育认定工作。</p>',
+  '<h4>一、政策不断加码</h4><p>近年来，工信部和地方工信部门陆续发布专精特新相关文件，申报门槛、评价指标和复核要求都更加细化。</p>',
+  '<div class="pic">原文图片 1（正式版显示已保存的原图）</div>',
+  '<h4>二、企业要注意什么</h4><p>企业应通过官方渠道了解申报要求，不轻信“包过”“内部名额”等说法；对委托的服务机构，要核实资质并签订规范合同。</p>',
+  '<p>申报材料应真实、完整，数据口径与财务报表一致，避免因材料问题被退回或影响后续复核。</p>'].join('');
+
+function open(id) {
+  const a = articles.find(x => x.id === id);
+  $('dw-acct').textContent = a.acct;
+  $('dw-h').textContent = a.t;
+  $('dw-by').textContent = `发布于 ${stamp(cnDate(a.when), true)}（中国时间）`;
+  $('dw-open').href = 'https://mp.weixin.qq.com/';
+  $('dw-figs').innerHTML = `<div class="${a.reads === null ? 'unknown' : ''}"><b>${fmt(a.reads)}</b><span>阅读</span></div>
+    <div class="${a.likes === null ? 'unknown' : ''}"><b>${fmt(a.likes)}</b><span>点赞</span></div>`;
+  $('dw-state').innerHTML = a.state === 'bad'
+    ? '<div class="alert">正文获取失败：公众号原文返回“验证页”，可能需要稍后重试；这篇文章不会被选去写作。</div>'
+    : a.state === 'nobody' ? '<div class="wait">还没有读取正文。任务选中这篇文章时才会读取，以免多花采集费用。</div>'
+    : a.state === 'used' ? '<div class="wait" style="background: var(--jade-soft); color: var(--jade)">这篇已经用来生成过稿件，新任务不会再选它。</div>' : '';
+  $('dw-body').innerHTML = a.state === 'ok' || a.state === 'used' ? BODY : '<p class="note">没有可显示的正文。</p>';
+  $('dw-meta').innerHTML = [
+    ['阅读量来源', a.reads === null ? '采集服务没有返回（显示为“未知”，不参与热度排名）' : '极致了历史发文列表'],
+    ['数字采集时间', stamp(cnDate(now - HOUR / 2), true)],
+    ['文章采集时间', stamp(cnDate(a.when + HOUR), true)],
+    ['所属任务', '10-25 10:02 的任务'],
+    ['原文链接', 'mp.weixin.qq.com/s?__biz=…（示例）']].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+  $('drawer').hidden = false; $('drawer').scrollTop = 0; $('dw-close').focus();
+}
+$('list').addEventListener('click', e => { const b = e.target.closest('[data-open]'); if (b) open(Number(b.dataset.open)); });
+$('dw-close').addEventListener('click', () => { $('drawer').hidden = true; });
+$('dw-open').addEventListener('click', e => { e.preventDefault(); toast('正式版会用浏览器打开这篇公众号原文'); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('drawer').hidden = true; });
+document.querySelectorAll('[data-later]').forEach(b => b.addEventListener('click', () => toast(`“${b.firstChild.textContent.trim()}”页会在后续逐页交付`)));
+document.querySelectorAll('[data-done]').forEach(b => b.addEventListener('click', () => toast('该页已确认，整合时会在同一个软件里切换')));
+render();
+</script>

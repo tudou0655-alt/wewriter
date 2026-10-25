@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 from PyInstaller.utils.hooks import collect_all
 
 datas = []
@@ -8,7 +9,14 @@ tmp_ret = collect_all('tzdata')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('playwright')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-datas += [('assets/wewriter-cat.png', 'assets')]
+tmp_ret = collect_all('webview')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+hiddenimports += ['clr', 'clr_loader', 'pythonnet']
+datas += [('assets/wewriter-cat.png', 'assets'), ('wewriter/web', 'wewriter/web')]
+# Build manifest (version, commit, dirty state) written by scripts/build.ps1; absent for ad-hoc builds.
+_build_info = os.environ.get('WEWRITER_BUILD_INFO')
+if _build_info and os.path.isfile(_build_info):
+    datas += [(_build_info, '.')]
 
 
 a = Analysis(

@@ -8,6 +8,7 @@ from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from .config import defaults, migrate
+from .logs import redact, redact_warnings
 
 logger = logging.getLogger('wewriter')
 
@@ -32,6 +33,18 @@ CREATE TABLE IF NOT EXISTS article_images (
 CREATE TABLE IF NOT EXISTS job_metrics (
  job_id INTEGER NOT NULL, article_id INTEGER NOT NULL, reads INTEGER, likes INTEGER,
  observed_at TEXT NOT NULL, PRIMARY KEY(job_id,article_id));
+-- Provenance of one job's metric observation (see engine.METRIC_SOURCES). Kept in its own
+-- table so the positional INSERTs into job_metrics/article_metrics stay valid.
+-- When each value kept in article_metrics was observed ('' = no value). Separate for the
+-- same reason; article_metrics.observed_at is the time of its latest update.
+CREATE TABLE IF NOT EXISTS article_metric_times (
+ article_id INTEGER PRIMARY KEY, reads_observed_at TEXT NOT NULL DEFAULT '',
+ likes_observed_at TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS metric_notes (
+ job_id INTEGER NOT NULL, article_id INTEGER NOT NULL, source TEXT NOT NULL DEFAULT '',
+ reads_status TEXT NOT NULL DEFAULT '', likes_status TEXT NOT NULL DEFAULT '',
+ previous_reads INTEGER, previous_observed_at TEXT NOT NULL DEFAULT '',
+ PRIMARY KEY(job_id,article_id));
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS accounts (
  id INTEGER PRIMARY KEY, name TEXT NOT NULL, identifier TEXT NOT NULL UNIQUE,
@@ -80,9 +93,43 @@ def _migrate_v3(db):
     _add_column(db, 'jobs', 'funnel', "TEXT NOT NULL DEFAULT ''")
 
 
+def _redact_funnel(raw):
+    try:
+        data = json.loads(raw) if raw else None
+    except ValueError:
+        return raw
+    if not isinstance(data, dict) or not isinstance(data.get('accounts'), dict):
+        return raw
+    for account in data['accounts'].values():
+        if isinstance(account, dict):
+            for key in ('error', 'coverage_reason'):
+                if account.get(key):
+                    account[key] = redact(account[key])
+            coverage = account.get('coverage')
+            if isinstance(coverage, dict) and coverage.get('reason'):
+                coverage['reason'] = redact(coverage['reason'])
+    collection = data.get('collection')
+    if isinstance(collection, dict) and isinstance(collection.get('warnings'), list):
+        collection['warnings'] = [redact(w) for w in collection['warnings']]
+    return json.dumps(data, ensure_ascii=False)
+
+
+def _migrate_v4(db):
+    # One-time redaction of historical diagnostics written before 0.10.4. Only diagnostic
+    # fields are touched (task message/warnings/funnel errors, article error); tasks, article
+    # bodies, drafts and reports are never rewritten or deleted. redact() is idempotent.
+    for row in db.execute('SELECT id, message, warnings, funnel FROM jobs').fetchall():
+        values = (redact(row[1]), redact_warnings(row[2]), _redact_funnel(row[3]))
+        if values != (row[1], row[2], row[3]):
+            db.execute('UPDATE jobs SET message=?, warnings=?, funnel=? WHERE id=?', (*values, row[0]))
+    for row in db.execute("SELECT id, error FROM articles WHERE error<>''").fetchall():
+        if redact(row[1]) != row[1]:
+            db.execute('UPDATE articles SET error=? WHERE id=?', (redact(row[1]), row[0]))
+
+
 # MIGRATIONS[n] upgrades a version n-1 database to version n. Steps must be idempotent,
 # because a database may have been partially upgraded or opened by an older release.
-MIGRATIONS = {2: _migrate_v2, 3: _migrate_v3}
+MIGRATIONS = {2: _migrate_v2, 3: _migrate_v3, 4: _migrate_v4}
 SCHEMA_VERSION = max(MIGRATIONS)
 RESTORE_TABLES = {"accounts", "articles", "jobs", "drafts", "settings", "analyses", "draft_versions"}
 
@@ -153,6 +200,7 @@ class Database:
                 db.execute('DELETE FROM article_images WHERE article_id IN (SELECT id FROM cleanup_ids)')
                 db.execute('DELETE FROM analyses WHERE article_id IN (SELECT id FROM cleanup_ids)')
                 db.execute('DELETE FROM article_metrics WHERE article_id IN (SELECT id FROM cleanup_ids)')
+                db.execute('DELETE FROM article_metric_times WHERE article_id IN (SELECT id FROM cleanup_ids)')
                 db.execute('DELETE FROM source_refs WHERE url IN (SELECT url FROM articles WHERE id IN (SELECT id FROM cleanup_ids))')
                 db.execute("UPDATE articles SET content='',content_hash='',error='',cleared=1 WHERE id IN (SELECT id FROM cleanup_ids)")
             else:
@@ -165,11 +213,13 @@ class Database:
         self.remove_image_files(image_paths)
         return total
 
-    def clear_all(self):
+    def clear_all(self, *, preserve_accounts=False):
         """Remove all business records while preserving settings and external secret files."""
         tables = ('draft_versions', 'drafts', 'analyses', 'research_cache', 'batch_items',
-                  'article_images',
+                  'article_images', 'metric_notes', 'article_metric_times',
                   'job_metrics', 'article_metrics', 'source_refs', 'jobs', 'articles', 'accounts')
+        if preserve_accounts:
+            tables = tuple(t for t in tables if t != 'accounts')
         with self.connect() as db:
             if db.execute("SELECT 1 FROM jobs WHERE status='运行中' LIMIT 1").fetchone():
                 raise ValueError('任务正在运行，请先停止任务并退出软件')
@@ -290,9 +340,19 @@ class Database:
         allowed = {"status", "stage", "selected", "warnings", "message", "error_code", "funnel"}
         if not fields or not set(fields).issubset(allowed):
             raise ValueError("无效任务字段")
+        # Persistence boundary for diagnostics: upstream error text may carry credentials.
+        if "message" in fields:
+            fields["message"] = redact(fields["message"])
+        if "warnings" in fields:
+            fields["warnings"] = redact_warnings(fields["warnings"])
+        if "funnel" in fields:
+            fields["funnel"] = _redact_funnel(fields["funnel"])
         fields["updated_at"] = stamp()
         self.execute("UPDATE jobs SET " + ",".join(k + "=?" for k in fields) + " WHERE id=?",
                      (*fields.values(), job_id))
+
+    def set_article_error(self, article_id, message):
+        self.execute("UPDATE articles SET error=? WHERE id=?", (redact(message), article_id))
 
     def recover(self):
         self.execute("UPDATE jobs SET status='已中断',message='上次运行异常退出，可选择任务重试' WHERE status='运行中'")
@@ -311,11 +371,54 @@ class Database:
             raise ValueError("标题和正文不能为空")
         with self.connect() as db:
             current = db.execute("SELECT * FROM drafts WHERE id=?", (draft_id,)).fetchone()
+            # An edited text needs a new review: an approval covers the text it saw.
+            if (title.strip(), body.strip()) != (current["title"], current["body"]):
+                status = '待审核'
             revision = current["revision"] + 1
             db.execute("UPDATE drafts SET title=?,body=?,status=?,revision=?,updated_at=? WHERE id=?",
                        (title.strip(), body.strip(), status, revision, stamp(), draft_id))
             db.execute("INSERT INTO draft_versions(draft_id,revision,title,body,created_at) VALUES(?,?,?,?,?)",
                        (draft_id, revision, title.strip(), body.strip(), stamp()))
+
+    # Manual review states. '已审核' is the pre-T-010 name of '已通过'.
+    REVIEW_STATES = ('待审核', '需修改', '已通过')
+
+    @staticmethod
+    def review_state(status):
+        return '已通过' if status == '已审核' else (status if status in Database.REVIEW_STATES else '待审核')
+
+    def set_draft_status(self, draft_id, status, note=''):
+        """Record a manual review decision without a new text revision.
+
+        The machine-generated report is never rewritten: the decision is
+        appended as a dated manual-review line, so the audit trail stays."""
+        if status not in self.REVIEW_STATES:
+            raise ValueError('审核状态无效')
+        with self.connect() as db:
+            current = db.execute("SELECT report FROM drafts WHERE id=? AND cleared=0", (draft_id,)).fetchone()
+            if current is None:
+                raise ValueError('稿件不存在或已清理')
+            line = f"\n【人工审核记录】{stamp()} · {status}" + (f" · {note.strip()[:500]}" if note.strip() else '')
+            db.execute("UPDATE drafts SET status=?,report=?,updated_at=? WHERE id=?",
+                       (status, current["report"] + line, stamp(), draft_id))
+
+    def qualified_drafts(self, job_id):
+        """Drafts of a batch (or single) task that a person has approved."""
+        return self.rows("""SELECT COUNT(*) n FROM drafts d WHERE d.cleared=0 AND d.status IN ('已通过','已审核')
+                            AND (d.job_id=? OR d.job_id IN (SELECT child_job_id FROM batch_items WHERE parent_job_id=?))""",
+                         (job_id, job_id))[0]['n']
+
+    def task_drafts(self, job_id):
+        return self.rows("""SELECT d.id,d.title,d.status,d.updated_at FROM drafts d WHERE d.cleared=0
+                            AND (d.job_id=? OR d.job_id IN (SELECT child_job_id FROM batch_items WHERE parent_job_id=?))
+                            ORDER BY d.id""", (job_id, job_id))
+
+    def top_jobs(self, limit, offset=0):
+        """Tasks shown to people: batch children are folded into their parent."""
+        where = "id NOT IN (SELECT child_job_id FROM batch_items)"
+        total = self.rows("SELECT COUNT(*) n FROM jobs WHERE " + where)[0]['n']
+        return total, self.rows("SELECT * FROM jobs WHERE " + where + " ORDER BY id DESC LIMIT ? OFFSET ?",
+                                (limit, offset))
 
     def backup(self, target):
         if Path(target).resolve() == self.path.resolve():

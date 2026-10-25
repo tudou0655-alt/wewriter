@@ -425,6 +425,13 @@ class AdapterTest(unittest.TestCase):
                 transport.request("https://example.com", "x", {})
             self.assertEqual(call.call_count, 3)
 
+    def test_no_quick_retry_when_server_asks_for_a_long_wait(self):
+        transport = Transport()
+        with patch.object(transport.opener, "open", side_effect=lambda *a, **k: (_ for _ in ()).throw(HTTPError("https://example.com", 503, "busy", {"Retry-After": "900"}, None))) as call:
+            with self.assertRaises(ApiError):
+                transport.request("https://example.com", "x", {})
+            self.assertEqual(call.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

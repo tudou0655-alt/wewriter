@@ -48,27 +48,34 @@ class ProviderTests(unittest.TestCase):
         model = test_core.AdapterTest().model({'insights':[{'point':'疑问', 'comment_ids':['C9']}]})
         with self.assertRaises(ApiError): model.analyze_comments([{'id':'C1','text':'问题'}])
 
-    def test_comment_pipeline_cached_on_writer_retry(self):
+    def test_withdrawn_comment_analysis_is_never_called_even_for_old_snapshots(self):
+        # T-010: an old task snapshot (retry, schedule) with comments_enabled=True
+        # must neither fetch EveryInfra comments nor call the comment model.
         from unittest.mock import patch
         from test_independent import IndependentModel, ResearchFake
         from test_hotspots import HotSource
         from wewriter.engine import Engine
         fixture = test_core.CoreTest(); fixture.setUp()
         class CommentModel(IndependentModel):
+            comment_calls = 0
+            fail_title = None
             def analyze_comments(self, comments):
-                return {'insights':[{'point':'读者疑问','comment_ids':['C1']}]}
+                CommentModel.comment_calls += 1
+                return {'insights': [{'point': '读者疑问', 'comment_ids': ['C1']}]}
         try:
             fixture.config.update(writing_mode='separate_web', draft_count=2, comments_enabled=True)
-            CommentModel.fail_title = '文章0'
             engine = Engine(fixture.db, test_core.FakeVault(), source_factory=HotSource,
                             model_factory=CommentModel, research_factory=ResearchFake)
-            with patch('wewriter.engine.EveryInfra.comments', return_value=[{'id':'C1','text':'问题'}]) as fetch:
-                self.assertEqual(engine.run('comments-test', fixture.config), '部分完成')
-                CommentModel.fail_title = None
-                self.assertEqual(engine.run('comments-test', fixture.config), '已完成')
-                self.assertEqual(fetch.call_count, 2)
+            with patch('wewriter.engine.EveryInfra.comments', return_value=[{'id': 'C1', 'text': '问题'}]) as fetch:
+                status = engine.run('comments-test', fixture.config)
+                message = ' | '.join(r['message'] for r in fixture.db.rows("SELECT message FROM jobs"))
+                self.assertEqual(status, '已完成', message)
+                fetch.assert_not_called()
+            self.assertEqual(CommentModel.comment_calls, 0)
+            self.assertFalse(migrate(dict(fixture.config))['comments_enabled'])
             drafts = fixture.db.rows('SELECT report FROM drafts')
-            self.assertTrue(all('读者疑问' in d['report'] for d in drafts))
+            self.assertTrue(drafts)
+            self.assertFalse(any('读者疑问' in d['report'] for d in drafts))
         finally:
             fixture.tearDown()
 

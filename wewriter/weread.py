@@ -1,4 +1,5 @@
 """Direct WeRead collection; credentials stay in the local encrypted vault."""
+import base64
 from io import BytesIO
 import http.cookiejar
 import html
@@ -13,14 +14,14 @@ import subprocess
 import threading
 import tempfile
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from bs4 import BeautifulSoup
 from PIL import Image, UnidentifiedImageError
 import urllib.error
 import urllib.parse
 import urllib.request
 from .api import ApiError, Cancelled, NoRedirect, wechat_url, parse_date
-from .logs import logger
+from .logs import logger, redact
 
 BASE = "https://weread.qq.com"
 SKILL_GATEWAY = "https://i.weread.qq.com/api/agent/gateway"
@@ -138,6 +139,23 @@ def browser_cookie_state(cookies, ticket='', wrpa=''):
                      'expires': int(expires) if isinstance(expires, (int, float)) and expires > 0 else None})
     return json.dumps({'version': 2, 'cookies': rows,
                        'ticket': str(ticket or ''), 'wrpa': str(wrpa or '')}, ensure_ascii=False)
+
+
+def whole(value):
+    """Non-negative int from an int or digit string; None otherwise (bool excluded)."""
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
+def page_oldest(page):
+    """Oldest createTime (epoch seconds) of one article-list page; inf if unknown."""
+    times = [group.get('createTime') for group in page.get('reviews') or []
+             if isinstance(group, dict)]
+    times = [value for value in times if isinstance(value, (int, float)) and value > 0]
+    return min(times) if times else float('inf')
 
 
 class WeReadBrowser:
@@ -363,7 +381,7 @@ class WeReadBrowser:
 
     def public_content(self, url):
         """Open a trusted public WeChat URL when WeRead returns a verification page."""
-        url = wechat_url(url)
+        wechat_url(url)   # validates the host; the original query (chksm) is kept
         context = self.open()
         page = context.new_page()
         try:
@@ -374,7 +392,7 @@ class WeReadBrowser:
         finally:
             page.close()
 
-    def articles(self, book_id, limit):
+    def articles(self, book_id, limit, since=None):
         context = self.open()
         page = context.new_page()
         results = []
@@ -402,29 +420,51 @@ class WeReadBrowser:
             if isinstance(data, dict):
                 results.append(data)
 
+        def ok(item):
+            return (isinstance(item, dict) and isinstance(item.get('reviews'), list)
+                    and str(item.get('errCode', item.get('errcode', 0)) or 0) == '0')
+
+        def before_window(item):
+            return since is not None and page_oldest(item) < since
+
         page.on('request', request_sent)
         page.on('response', response_received)
         try:
             page.goto(BASE + '/web/mp/reader/' + encoded_id(book_id),
                       wait_until='domcontentloaded', timeout=60000)
-            unchanged = 0
-            previous = 0
+            # Wait for the reader's own first list request (offset=0); the
+            # page only issues it after a scroll.
             for _ in range(12):
                 if self.cancel.wait(1.5):
                     raise Cancelled('任务已停止')
-                count = sum(len(x.get('reviews', [])) for x in results)
-                if count >= limit:
-                    break
-                unchanged = unchanged + 1 if count == previous else 0
-                previous = count
-                if unchanged >= 3 and results:
+                if any(ok(item) for item in results):
                     break
                 page.mouse.wheel(0, 5000)
             self.ticket, self.wrpa = captured['ticket'], captured['wrpa']
-            successful = [item for item in results
-                          if isinstance(item.get('reviews'), list)
-                          and str(item.get('errCode', item.get('errcode', 0)) or 0) == '0']
+            successful = [item for item in results if ok(item)][:1]
             if successful:
+                # The reader page shows only the first page and scrolling does
+                # not load more, so request later pages the same way the page
+                # does: same-origin offset paging. An empty page is kept so the
+                # caller can report that the list was exhausted. WeRead refuses
+                # the list for the whole account (-2041) after a burst of such
+                # requests, so stop as soon as the time window is covered.
+                offset = len(successful[0]['reviews'])
+                for _ in range(12):
+                    if (offset >= limit or not successful[-1]['reviews']
+                            or before_window(successful[-1])):
+                        break
+                    if self.cancel.wait(2):
+                        raise Cancelled('任务已停止')
+                    more = page.evaluate("""async ({bookId, offset}) => {
+                        const response = await fetch('/web/mp/articles?' +
+                            new URLSearchParams({bookId, offset}), {credentials: 'include'});
+                        try { return await response.json(); } catch (_) { return null; }
+                    }""", {'bookId': book_id, 'offset': offset})
+                    if not ok(more):
+                        break
+                    successful.append(more)
+                    offset += len(more['reviews'])
                 return successful
             if not results:
                 raise ApiError('Edge 未收到公众号文章列表；请重新登录微信读书',
@@ -577,7 +617,8 @@ class WeReadSession:
             messages = {
                 '-2010': '当前登录凭据未识别到微信读书用户；请在公众号管理中使用 Edge 重新扫码登录',
                 '-2012': '登录会话已过期或冲突，请在公众号管理中重新扫码登录',
-                '-2041': '公众号文章接口临时凭据已失效；请重启软件后重试，仍失败时请在公众号管理中使用 Edge 重新扫码登录',
+                '-2041': ('微信读书服务端暂时拒绝了公众号文章列表请求；登录本身仍有效，'
+                          '官方网页在同一状态下也会被拒绝，重新扫码通常无效，请稍后再采集'),
             }
             kind = ('weread_ticket' if str(code) == '-2041' else
                     'weread_auth' if str(code) in messages else 'weread')
@@ -716,7 +757,7 @@ class WeReadSkill:
 
 class WeReadSource:
     def __init__(self, state, db, cancel=None, session=None, state_saver=None, profile_dir=None,
-                 skill_key=None, skill=None):
+                 skill_key=None, skill=None, provider=None, primary=None):
         if not state and session is None:
             raise ApiError("尚未登录微信读书，请在公众号管理中扫码登录", True)
         self.session = session or WeReadSession(state)
@@ -728,6 +769,25 @@ class WeReadSource:
         self.skill = skill or (WeReadSkill(skill_key, self.cancel) if skill_key else None)
         self.browser_profile_dir = None
         self.browser = None
+        # Coverage of the latest successful articles() call, read by the engine:
+        # {'mode': 'history_list', 'end': ...} or {'mode': 'latest_only', 'reason': ...}.
+        self.last_coverage = None
+        self._list_end = None
+        # Optional datetime set by the engine: stop paging once older articles
+        # are listed, to keep the request count low.
+        self.list_since = None
+        # The -2041 refusal of this run; later accounts skip the list request.
+        self.list_refused = None
+        # Optional EveryInfra client: when set it supplies the article list and
+        # read counts, because the WeRead list is refused account-wide (-2041).
+        self.provider = provider
+        # Optional 极致了 client, tried before EveryInfra: its list already
+        # carries read counts.
+        self.primary = primary
+        # EveryInfra capacity refusals (HTTP 429/503) of this run, per action;
+        # later calls of that action fail fast instead of waiting on retries.
+        self.provider_busy = {}
+        self.book_titles = {}
         if profile_dir:
             # A parent collection task can remain open while its child writing
             # tasks read article bodies. Edge locks its user-data directory, so
@@ -757,10 +817,12 @@ class WeReadSource:
             except Cancelled:
                 raise
             except ApiError as exc:
-                # -2041 / non-200 body: the page's temporary request
-                # credentials expired. Reload WeRead once and retry; a second
-                # failure is a real login problem and is raised as such.
-                if exc.kind != 'weread_ticket' or attempt:
+                # Non-200 body: the page's temporary request credentials
+                # expired. Reload WeRead once and retry; a second failure is a
+                # real login problem and is raised as such. A -2041 article
+                # list is an account-wide refusal that the official web page
+                # gets too; retrying only prolongs it.
+                if exc.kind != 'weread_ticket' or attempt or action == 'articles':
                     raise
                 logger.info("微信读书临时凭据失效，重新加载页面后重试：%s", action)
                 try:
@@ -819,8 +881,8 @@ class WeReadSource:
     def _skill_latest_article(self, account):
         if not self.skill:
             raise ApiError(
-                '公众号历史列表凭据已失效，且尚未配置微信读书 Skill Key；'
-                '请在手机微信读书“我 → 设置 → 微信读书 Skill”获取 Key，并在软件设置中保存',
+                '微信读书拒绝了公众号历史列表；请在设置的“采集服务配置”中保存极致了 Key，'
+                '由其提供文章列表和阅读量',
                 True, kind='weread_auth')
         cover = self.request('/api/mp/cover', {'bookId': account})
         review_id = str(cover.get('reviewId') or '')
@@ -847,13 +909,19 @@ class WeReadSource:
                         (url, review_id))
         return {'url': url, 'title': title, 'posted_at': published,
                 'read_count': info.get('readNum'), 'like_count': info.get('likeNum'),
-                'collection_warning': '公众号历史列表临时不可用，已通过官方 Skill 获取该公众号最新文章'}
+                'metric_source': 'weread_skill',
+                'collection_warning': ('公众号历史列表临时不可用，已降级为通过官方 Skill 仅获取最新一篇；'
+                                       '扩大时间范围不能恢复历史列表覆盖')}
 
     def _legacy_articles(self, account, limit):
         if not re.fullmatch(r"MP_WXS_\d+", account):
             raise ApiError("请先在微信读书关注该公众号，再点击“同步书架公众号”更新标识")
         items, seen, offset, skipped = [], set(), 0, 0
-        browser_pages = self._browser_call('articles', account, limit) if self.browser else None
+        self._list_end = 'limit'
+        since = self.list_since.timestamp() if self.list_since else None
+        extra = () if since is None else (since,)
+        browser_pages = (self._browser_call('articles', account, limit, *extra)
+                         if self.browser else None)
         if self.browser:
             self._save_browser_state()
         while len(items) < limit:
@@ -863,6 +931,7 @@ class WeReadSource:
             if not isinstance(groups, list):
                 raise ApiError("微信读书未返回文章列表；不会用旧封面文章代替")
             if not groups:
+                self._list_end = 'exhausted'
                 break
             before = len(seen)
             for group in groups:
@@ -893,15 +962,23 @@ class WeReadSource:
                         continue
                     self.db.execute('INSERT OR REPLACE INTO source_refs(url,review_id) VALUES(?,?)', (url, rid))
                     items.append({'url': url, 'title': info.get('title'), 'posted_at': published,
-                                  'read_count': info.get('readNum'), 'like_count': info.get('likeNum')})
+                                  'read_count': info.get('readNum'), 'like_count': info.get('likeNum'),
+                                  'metric_source': 'weread_list'})
                     if len(items) >= limit:
                         break
                 if len(items) >= limit:
                     break
             offset += len(groups)
+            if len(items) >= limit:
+                break
+            if since is not None and page_oldest(result) < since:
+                self._list_end = 'window'
+                break
             if len(seen) == before:
+                self._list_end = 'exhausted'
                 break
             if browser_pages is not None and not browser_pages:
+                self._list_end = 'scroll_end'
                 break
         if skipped and not items:
             raise ApiError(f"微信读书返回的 {skipped} 条文章数据均缺少有效标识或发布时间，接口格式可能已变化")
@@ -911,16 +988,170 @@ class WeReadSource:
         if not re.fullmatch(r"MP_WXS_\d+", account):
             raise ApiError("请先在微信读书关注该公众号，再点击“同步书架公众号”更新标识")
         if self.books is None:
-            self.books = {b['bookId'] for b in self.shelf()}
+            shelf = self.shelf()
+            self.books = {b['bookId'] for b in shelf}
+            self.book_titles = {b['bookId']: str(b.get('title') or '').strip() for b in shelf}
         if account not in self.books:
             raise ApiError("微信读书书架未找到该公众号，请用同一微信账号在手机加入书架后同步")
+        self.last_coverage = None
+        if self.provider or self.primary:
+            return self._provider_articles(account, limit)
+        exc = self.list_refused
+        if exc is None:
+            try:
+                items = self._legacy_articles(account, limit)
+                self.last_coverage = {'mode': 'history_list', 'end': self._list_end}
+                return items
+            except ApiError as error:
+                if error.kind != 'weread_ticket':
+                    raise
+                exc = self.list_refused = error
+        logger.warning('公众号历史列表被拒绝，使用官方 Skill 获取最新文章：%s', account)
+        item = self._skill_latest_article(account)
+        self.last_coverage = {'mode': 'latest_only', 'reason': '历史列表不可用：' + redact(str(exc))[:160]}
+        return [item]
+
+    def _provider_articles(self, account, limit):
+        """List through the data providers, 极致了 first and EveryInfra second.
+
+        Providers are queried by the account's current WeRead shelf title (an
+        EveryInfra profile URL with __biz was refused with 503 on 2026-10-24
+        while the name worked); every returned article must then carry this
+        account's __biz (the MP_WXS_ number, base64), so a same-named account
+        is rejected. A provider that fails for this account hands over to the
+        next one; the coverage records which provider answered.
+        """
+        biz = base64.b64encode(account[len('MP_WXS_'):].encode('ascii')).decode('ascii')
+        name = self.book_titles.get(account)
+        if not name:
+            raise ApiError('微信读书书架没有该公众号的名称，无法向数据服务查询', kind='provider')
+        failures = []
+        for label, client in (('dajiala', self.primary), ('everyinfra', self.provider)):
+            if not client:
+                continue
+            try:
+                items = self._provider_listing(label, client, name, biz, limit)
+            except ApiError as exc:
+                if exc.fatal:
+                    raise
+                failures.append(exc)
+                continue
+            if failures and items:
+                notes = [items[0].get('collection_warning') or '',
+                         '主数据服务失败，已改用备用数据服务：' + redact(str(failures[0]))[:160]]
+                items[0]['collection_warning'] = '；'.join(note for note in notes if note)
+            return items
+        if len(failures) == 1:
+            raise failures[0]
+        raise ApiError('；'.join(redact(str(exc))[:160] for exc in failures), kind='provider')
+
+    def _provider_listing(self, label, client, name, biz, limit):
+        since = self.list_since
+        exhausted = False
+        if label == 'dajiala':
+            rows, offset = [], ''
+            for _ in range(8):
+                page = self._provider_call(label, client, 'history', name, offset)
+                data = [row for row in page['data'] if isinstance(row, dict)]
+                # Numbers arrive as int for some accounts and as digit strings
+                # for others (seen 2026-10-25).
+                rows += [{'url': row.get('url'), 'title': row.get('title'),
+                          'posted_at': row.get('post_time'), 'is_deleted': row.get('is_deleted'),
+                          'read_count': whole(row.get('read')), 'like_count': whole(row.get('zan'))}
+                         for row in data]
+                times = [whole(row.get('post_time')) for row in data]
+                times = [value for value in times if value]
+                if str(page.get('is_end')) == '1' or not data:
+                    exhausted = True
+                    break
+                if len(rows) >= limit or not page.get('offset') or (
+                        since is not None and times and min(times) < since.timestamp()):
+                    break
+                offset = page['offset']
+                if self.cancel.wait(0.5):
+                    raise Cancelled('任务已停止')
+            source_name, metric_source = '极致了', 'dajiala_list'
+        else:
+            rows = self._provider_call(label, client, 'articles', name, limit)
+            source_name, metric_source = 'EveryInfra', 'everyinfra_metrics'
+        items, foreign, unknown, invalid = [], 0, 0, None
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                url = wechat_url(row.get('url', ''))
+                published = parse_date(row.get('posted_at'))
+            except (ValueError, TypeError, OverflowError, OSError):
+                # Field types only, never values, for diagnosing format changes.
+                invalid = invalid or {key: type(row.get(key)).__name__ for key in ('url', 'posted_at')}
+                continue
+            if parse_qs(urlsplit(url).query).get('__biz', [''])[0] != biz:
+                foreign += 1
+                continue
+            # WeChat answers the canonical (re-encoded, chksm-less) link with a
+            # verification page, so the provider's original link is kept for
+            # reading the body; 'url:' marks it as not being a WeRead review id.
+            original = str(row.get('url')).replace('http://', 'https://', 1)
+            self.db.execute('INSERT OR REPLACE INTO source_refs(url,review_id) VALUES(?,?)',
+                            (url, 'url:' + original))
+            item = {'url': url, 'title': row.get('title'), 'posted_at': published.isoformat(),
+                    'is_deleted': row.get('is_deleted'), 'read_count': row.get('read_count'),
+                    'like_count': row.get('like_count'), 'metric_source': metric_source}
+            if label == 'everyinfra' and (since is None or published >= since):
+                self.check_cancel()
+                try:
+                    metrics = self._provider_call(label, client, 'metrics', url)
+                    item['read_count'] = metrics.get('read_count')
+                    item['like_count'] = metrics.get('like_count')
+                except ApiError as exc:
+                    if exc.fatal:
+                        raise
+                    unknown += 1
+            items.append(item)
+        if not items:
+            if foreign:
+                raise ApiError(f'{source_name} 返回的文章不属于该公众号，已全部丢弃', kind=label)
+            if rows:
+                raise ApiError(f'{source_name} 返回的 {len(rows)} 篇文章缺少有效链接或发布时间'
+                               f'（字段类型 {invalid}）', kind=label)
+        if unknown:
+            items[0]['collection_warning'] = (f'{unknown} 篇文章阅读量查询失败，'
+                                              '未参与热度排名（不按 0 阅读处理）')
+        oldest = min((parse_date(item['posted_at']) for item in items), default=None)
+        end = ('window' if since is not None and oldest is not None and oldest < since else
+               'exhausted' if exhausted else
+               'limit' if len(rows) >= limit else 'provider_page')
+        self.last_coverage = {'mode': 'history_list', 'end': end, 'provider': label}
+        return items
+
+    def _public_page(self, url):
+        self.check_cancel()
+        request = urllib.request.Request(url, headers={
+            'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+            'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                           'AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36')})
         try:
-            return self._legacy_articles(account, limit)
+            with urllib.request.urlopen(request, timeout=30) as response:
+                body = response.read(16 * 1024 * 1024 + 1)
+        except (urllib.error.URLError, TimeoutError, socket.timeout, OSError):
+            return ''
+        if len(body) > 16 * 1024 * 1024:
+            raise ApiError('公众号原文页面过大，已跳过')
+        return body.decode('utf-8', errors='replace')
+
+    def _provider_call(self, label, client, action, *args):
+        """Call one provider method; a capacity refusal (HTTP 429/503) stops
+        further calls of that method in this run instead of waiting on retries."""
+        key = (label, action)
+        busy = self.provider_busy.get(key)
+        if busy:
+            raise ApiError('数据服务本次任务中已提示容量不足，未再请求：' + str(busy), kind=label)
+        try:
+            return getattr(client, action)(*args)
         except ApiError as exc:
-            if exc.kind != 'weread_ticket':
-                raise
-            logger.warning('公众号历史列表凭据失效，使用官方 Skill 获取最新文章：%s', account)
-            return [self._skill_latest_article(account)]
+            if re.match(r'HTTP (429|503)', str(exc)):
+                self.provider_busy[key] = exc
+            raise
 
     def close(self):
         if self.browser:
@@ -932,9 +1163,18 @@ class WeReadSource:
     def content(self, url):
         url = wechat_url(url)
         refs = self.db.rows('SELECT review_id FROM source_refs WHERE url=?', (url,))
-        if not refs:
+        if refs and str(refs[0]['review_id']).startswith('url:'):
+            # Listed by a data provider: no WeRead identifier, read the public
+            # original. A plain request got the body on 2026-10-24 where the
+            # headless Edge got WeChat's verification page.
+            original = refs[0]['review_id'][4:]
+            wechat_url(original)
+            raw = self._public_page(original)
+            if 'id="js_content"' not in raw and self.browser:
+                raw = self._browser_call('public_content', original)
+        elif not refs:
             raise ApiError("这篇旧素材没有微信读书标识，请重新采集；不要重试旧 EveryInfra 任务")
-        if self.browser:
+        elif self.browser:
             try:
                 raw = self._browser_call('content', refs[0]['review_id'])
             except ApiError as exc:
@@ -1060,19 +1300,55 @@ def sync_shelf(db, session):
     return sync_books(db, session.shelf())
 
 
-def sync_books(db, books):
-    added = updated = 0
+def shelf_accounts(books):
+    """Public accounts of a WeRead bookshelf (MP_WXS_ entries), unique by ID."""
+    found = {}
     for book in books:
         identifier, name = book.get('bookId', ''), str(book.get('title') or '').strip()
-        if not re.fullmatch(r'MP_WXS_\d+', identifier) or not name:
+        if re.fullmatch(r'MP_WXS_\d+', identifier) and name and identifier not in found:
+            found[identifier] = name
+    return [{'identifier': key, 'name': value} for key, value in found.items()]
+
+
+def identifier_from_link(text):
+    """MP_WXS_ identifier from an identifier or a public mp.weixin.qq.com link (__biz)."""
+    text = str(text or '').strip()
+    if re.fullmatch(r'MP_WXS_\d+', text):
+        return text
+    try:
+        url = wechat_url(text)
+    except ValueError:
+        raise ValueError('请填写 MP_WXS_ 开头的标识，或该公众号任一文章的 mp.weixin.qq.com 链接') from None
+    biz = parse_qs(urlsplit(url).query).get('__biz', [''])[0]
+    try:
+        number = base64.b64decode(biz + '=' * (-len(biz) % 4), validate=True).decode('ascii')
+    except (ValueError, UnicodeError):
+        number = ''
+    if not number.isdigit():
+        raise ValueError('该链接不含可识别的公众号标识（__biz）；请换用完整的文章链接')
+    return 'MP_WXS_' + number
+
+
+def sync_books(db, books, selected=None):
+    """Import shelf accounts; ``selected`` limits the import to chosen IDs.
+
+    Accounts are matched by their stable ID; an existing account keeps its
+    enabled state. Only a legacy account without an MP_WXS_ ID is matched by
+    an exact name, to give it its ID."""
+    added = updated = 0
+    shelf = shelf_accounts(books)
+    for account in shelf:
+        identifier, name = account['identifier'], account['name']
+        if selected is not None and identifier not in selected:
             continue
         if db.rows('SELECT id FROM accounts WHERE identifier=?', (identifier,)):
             continue
-        matches = db.rows('SELECT id FROM accounts WHERE name=?', (name,))
+        matches = [row for row in db.rows('SELECT id,identifier FROM accounts WHERE name=?', (name,))
+                   if not re.fullmatch(r'MP_WXS_\d+', row['identifier'])]
         if len(matches) == 1:
             db.execute('UPDATE accounts SET identifier=? WHERE id=?', (identifier, matches[0]['id']))
             updated += 1
         else:
             db.add_account(name, identifier)
             added += 1
-    return f"书架同步完成：找到 {len(books)} 个公众号，新增 {added} 个，更新标识 {updated} 个"
+    return f"书架同步完成：找到 {len(shelf)} 个公众号，新增 {added} 个，更新标识 {updated} 个"

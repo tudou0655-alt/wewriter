@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WeWriter 公众号</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap" media="print" onload="this.media='all'">
+<style>
+/* Layout: same rail and column as 工作台; the account list is the page, sync opens above it. */
+:root {
+  --ground: #eef2f1; --sheet: #ffffff; --ink: #15232a; --ink-2: #56656d; --rule: #d9e1df;
+  --jade: #0d6b5b; --jade-soft: #e3f1ed; --cinnabar: #b9452f; --cinnabar-soft: #f8e6e1;
+  --amber: #8a5a12; --amber-soft: #f7efdc; --focus: #1f7a68; --glint: #8fe6d1; --off: #c4cecb;
+  --font-display: "Noto Serif SC", "Songti SC", "SimSun", serif;
+  --font-body: "Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0e1416; --sheet: #162024; --ink: #e6eeeb; --ink-2: #9cb0ab; --rule: #2a3a3e;
+    --jade: #63c6ae; --jade-soft: #173a33; --cinnabar: #f08c74; --cinnabar-soft: #3d2520;
+    --amber: #e8c27a; --amber-soft: #3a3020; --focus: #63c6ae; --glint: #e6fff8; --off: #3a4a4e; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0e1416; --sheet: #162024; --ink: #e6eeeb; --ink-2: #9cb0ab; --rule: #2a3a3e;
+  --jade: #63c6ae; --jade-soft: #173a33; --cinnabar: #f08c74; --cinnabar-soft: #3d2520;
+  --amber: #e8c27a; --amber-soft: #3a3020; --focus: #63c6ae; --glint: #e6fff8; --off: #3a4a4e; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.6; }
+button, select, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.app { display: grid; grid-template-columns: 196px minmax(0, 1fr); min-height: 100%; }
+.rail { background: var(--sheet); border-right: 1px solid var(--rule); padding-block: 22px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 16px; display: flex; flex-direction: column; gap: 28px; }
+.brand { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; }
+.brand b { font-family: var(--font-display); font-size: 22px; letter-spacing: .02em; }
+.brand span { color: var(--ink-2); font-size: 12px; }
+.nav { display: flex; flex-direction: column; gap: 4px; }
+.nav button { all: unset; cursor: pointer; padding: 9px 12px; border-radius: 8px; color: var(--ink-2); display: flex; justify-content: space-between; align-items: center; }
+.nav button:hover { background: var(--ground); color: var(--ink); }
+.nav button[aria-current="page"] { background: var(--jade-soft); color: var(--jade); font-weight: 700; }
+.nav small { font-size: 11px; color: var(--ink-2); font-weight: 400; }
+.rail .foot { margin-top: auto; padding-left: 10px; color: var(--ink-2); font-size: 12px; }
+main { padding-block: 28px 48px; padding-inline: clamp(16px, 3vw, 48px); min-width: 0; }
+.wrap { max-width: 1320px; margin-inline: auto; display: grid; gap: 18px; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.top .acts { display: flex; gap: 10px; }
+h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacing: .02em; }
+.sample { font-size: 12px; color: var(--amber); background: var(--amber-soft); padding: 2px 8px; border-radius: 999px; }
+.panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius); padding: 20px 22px; min-width: 0; }
+.panel h2 { font-size: 16px; margin: 0; font-weight: 700; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.btn { cursor: pointer; border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 7px 14px; }
+.btn:hover { border-color: var(--ink-2); }
+.btn:disabled { cursor: not-allowed; opacity: .5; }
+.btn.primary { background: var(--jade); border-color: var(--jade); color: var(--sheet); font-weight: 700; padding: 8px 18px; }
+.btn.primary:hover { filter: brightness(1.06); }
+.btn.quiet { border-color: transparent; color: var(--ink-2); }
+.btn.quiet:hover { color: var(--ink); border-color: var(--rule); }
+.btn.danger { color: var(--cinnabar); border-color: var(--cinnabar-soft); }
+.note { color: var(--ink-2); font-size: 13px; }
+.shine { background: linear-gradient(100deg, var(--jade) 0%, var(--jade) 38%, var(--glint) 50%, var(--jade) 62%, var(--jade) 100%);
+  background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: glint 1.8s linear infinite; }
+@keyframes glint { from { background-position: 125% 0; } to { background-position: -125% 0; } }
+
+/* Sync panel: three real steps in order. */
+.sync { border-color: var(--jade); box-shadow: 0 0 0 3px var(--jade-soft); }
+.stepper { list-style: none; margin: 4px 0 16px; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stepper li { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.stepper .bar { height: 4px; border-radius: 4px; background: var(--rule); position: relative; overflow: hidden; }
+.stepper li.done { color: var(--ink); }
+.stepper li.done .bar { background: var(--jade); }
+.stepper li.now { color: var(--jade); font-weight: 700; }
+.stepper li.now .bar { background: var(--jade-soft); }
+.stepper li.now .bar::after { content: ""; position: absolute; inset: 0; width: 40%; background: linear-gradient(90deg, transparent, var(--jade), transparent); animation: run 1.6s linear infinite; }
+@keyframes run { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+.qr { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 20px; align-items: center; }
+.qr .code { width: 148px; aspect-ratio: 1; max-width: 100%; border-radius: 10px; border: 1px dashed var(--rule); display: grid; place-items: center; text-align: center; color: var(--ink-2); font-size: 12px; background:
+  repeating-linear-gradient(45deg, var(--ground) 0 6px, transparent 6px 12px); }
+.qr ol { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
+.pick { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 320px; overflow-y: auto; }
+.pick label { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.pick label:hover { background: var(--ground); }
+.pick input { width: 16px; height: 16px; accent-color: var(--jade); }
+.pick .tag { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--jade-soft); color: var(--jade); }
+.pick .tag.have { background: var(--ground); color: var(--ink-2); }
+.pick label.have { cursor: default; color: var(--ink-2); }
+.bar-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+.bar-row .grow { flex: 1; }
+.err { background: var(--cinnabar-soft); color: var(--cinnabar); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+
+/* Manual add */
+.form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 14px; }
+.form label { display: grid; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.input { border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 8px 12px; width: 100%; }
+.input:focus { border-color: var(--jade); outline: none; box-shadow: 0 0 0 3px var(--jade-soft); }
+.hint { font-size: 12px; color: var(--ink-2); }
+.hint.bad { color: var(--cinnabar); }
+.hint.ok { color: var(--jade); }
+
+/* List */
+.tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.tools .input { max-width: 300px; }
+.filter { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+.filter button { all: unset; cursor: pointer; padding: 6px 12px; color: var(--ink-2); font-size: 13px; border-right: 1px solid var(--rule); }
+.filter button:last-child { border-right: 0; }
+.filter button[aria-pressed="true"] { background: var(--jade-soft); color: var(--jade); font-weight: 700; }
+.tools .count { margin-left: auto; color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 18px; align-items: center; padding: 14px 0; border-top: 1px solid var(--rule); }
+.list li:first-child { border-top: 0; padding-top: 2px; }
+.list .name { font-weight: 700; overflow-wrap: anywhere; }
+.list .state { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.list .state.bad { color: var(--cinnabar); }
+.list li.off .name { color: var(--ink-2); font-weight: 500; }
+.list li.new { animation: arrive 1.4s ease-out; }
+@keyframes arrive { from { background: var(--jade-soft); } to { background: transparent; } }
+.switch { display: inline-flex; gap: 8px; align-items: center; cursor: pointer; font-size: 13px; color: var(--ink-2); background: none; border: 0; padding: 4px; }
+.switch .track { width: 36px; height: 20px; border-radius: 999px; background: var(--off); position: relative; transition: background .18s; }
+.switch .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--sheet); transition: transform .18s; box-shadow: 0 1px 2px rgb(0 0 0 / .2); }
+.switch[aria-checked="true"] .track { background: var(--jade); }
+.switch[aria-checked="true"] .track::after { transform: translateX(16px); }
+.switch[aria-checked="true"] { color: var(--ink); }
+.switch .lbl { width: 3em; text-align: left; }
+.empty { color: var(--ink-2); font-size: 13px; padding: 18px 0 8px; }
+.pager { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+.pager div { display: flex; gap: 8px; }
+
+/* Drawer */
+.drawer { position: fixed; inset: 0 0 0 auto; width: min(480px, 100%); background: var(--sheet); border-left: 1px solid var(--rule); padding: 22px 24px calc(24px + env(safe-area-inset-bottom, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); overflow-y: auto; box-shadow: -18px 0 40px rgb(0 0 0 / .12); z-index: 20; }
+.drawer h3 { font-family: var(--font-display); font-size: 21px; margin: 0; }
+.drawer h4 { font-size: 13px; color: var(--ink-2); font-weight: 500; margin: 22px 0 8px; }
+.drawer dl { display: grid; grid-template-columns: 7em minmax(0, 1fr); gap: 8px 12px; font-size: 13px; margin: 0; }
+.drawer dt { color: var(--ink-2); }
+.drawer dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.recent { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.recent li { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; background: var(--ground); padding: 7px 10px; border-radius: 6px; }
+.recent span:last-child { color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.confirm { background: var(--cinnabar-soft); color: var(--cinnabar); border-radius: 8px; padding: 12px; font-size: 13px; display: grid; gap: 10px; }
+.confirm div { display: flex; gap: 8px; }
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--sheet); padding: 8px 16px; border-radius: 8px; font-size: 13px; z-index: 30; max-width: calc(100% - 32px); }
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail { flex-direction: row; align-items: center; padding-block: 10px; border-right: 0; border-bottom: 1px solid var(--rule); gap: 14px; overflow-x: auto; }
+  .brand span, .rail .foot, .nav small { display: none; }
+  .nav { flex-direction: row; }
+  main { padding-left: max(16px, env(safe-area-inset-left, 0px)); }
+  .qr, .form { grid-template-columns: minmax(0, 1fr); }
+  .list li { grid-template-columns: minmax(0, 1fr) auto; }
+  .list li .more { grid-column: 1 / -1; justify-self: start; }
+  .tools .count { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shine { animation: none; color: var(--jade); background: none; }
+  .stepper li.now .bar::after { animation: none; width: 100%; opacity: .5; }
+  .list li.new { animation: none; }
+  .switch .track, .switch .track::after { transition: none; }
+}
+</style>
+
+<div class="app">
+  <aside class="rail">
+    <div class="brand"><b>WeWriter</b><span>公众号内容工作台</span></div>
+    <nav class="nav" aria-label="页面" id="nav"></nav>
+    <div class="foot" id="foot"></div>
+  </aside>
+
+  <main>
+    <div class="wrap">
+      <div class="top">
+        <h1>公众号</h1>
+        <div class="acts">
+          <button class="btn" id="add-open">手动添加</button>
+          <button class="btn primary" id="sync-open">扫码同步书架</button>
+        </div>
+      </div>
+      <div class="note">采集名单来自<b>微信读书书架</b>里的公众号（不是微信关注列表）。启用、停用和删除从下一个新任务起生效。</div>
+
+      <section class="panel sync" id="sync" hidden aria-labelledby="sync-h">
+        <div class="panel-head"><h2 id="sync-h">同步微信读书书架</h2><button class="btn quiet" id="sync-close">关闭</button></div>
+        <ol class="stepper" id="stepper"><li><span class="bar"></span>扫码登录</li><li><span class="bar"></span>读取书架</li><li><span class="bar"></span>选择要导入的公众号</li></ol>
+        <div id="sync-body"></div>
+      </section>
+
+      <section class="panel" id="add" hidden aria-labelledby="add-h">
+        <div class="panel-head"><h2 id="add-h">手动添加公众号</h2><button class="btn quiet" id="add-close">取消</button></div>
+        <form class="form" id="add-form" novalidate>
+          <label>公众号名称<input class="input" id="add-name" placeholder="例如：思博产业研究" autocomplete="off"></label>
+          <label>该公众号任一文章的链接<input class="input" id="add-link" placeholder="https://mp.weixin.qq.com/s?__biz=…" autocomplete="off"></label>
+          <div class="hint" id="add-hint" style="grid-column: 1 / -1">软件从链接里的账号编号（__biz）识别是哪个公众号，不按名称猜测；名称需和公众号实际名称一致。</div>
+          <div class="bar-row" style="grid-column: 1 / -1; margin-top: 0"><button class="btn primary" type="submit">添加</button></div>
+        </form>
+      </section>
+
+      <section class="panel" aria-label="公众号名单">
+        <div class="tools" style="margin-bottom: 14px">
+          <input class="input" id="q" type="search" placeholder="搜索已添加的公众号" aria-label="搜索公众号">
+          <div class="filter" role="group" aria-label="筛选" id="filter">
+            <button aria-pressed="true" data-v="all">全部</button><button aria-pressed="false" data-v="on">已启用</button><button aria-pressed="false" data-v="off">已停用</button>
+          </div>
+          <span class="count" id="count"></span>
+        </div>
+        <ul class="list" id="list"></ul>
+        <div class="pager" id="pager" hidden><span id="pageinfo"></span><div><button class="btn" id="prev">上一页</button><button class="btn" id="next">下一页</button></div></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<aside class="drawer" id="drawer" hidden aria-labelledby="dw-h">
+  <div class="panel-head" style="margin-bottom: 2px"><h3 id="dw-h"></h3><button class="btn quiet" id="dw-close">关闭</button></div>
+  <div id="dw-body"></div>
+</aside>
+<div class="toast" id="toast" hidden></div>
+<script src="common.js"></script>
+<script src="accounts.js"></script>
+</html>

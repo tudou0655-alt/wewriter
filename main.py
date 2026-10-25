@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from wewriter.db import Database, NewerDatabaseError
 from wewriter.secrets import Vault
 from wewriter.ui import App
-from wewriter.windows import set_app_id, single_instance
+from wewriter.windows import set_app_id, set_dpi_aware, single_instance
 
 
 def demo_data(db):
@@ -87,9 +87,11 @@ def main():
     parser.add_argument("--minimized", action="store_true")
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--smoke-test", type=Path, help="检查全部界面并写出检查结果，随后退出")
+    parser.add_argument("--tk", action="store_true", help="使用经典界面（网页界面无法启动时的备用）")
     parser.add_argument("--clear-data", action="store_true", help="备份后清空业务数据库，保留密钥、登录和设置")
     args = parser.parse_args()
     set_app_id()
+    set_dpi_aware()
     root = tk.Tk()
     root.withdraw()
     if not single_instance("WeWriter.Demo" if args.demo else "WeWriter.Desktop"):
@@ -129,6 +131,20 @@ def main():
     vault = Vault(base / "keys.dpapi.json")
     if args.demo:
         demo_data(db)
+    if not args.smoke_test and not args.tk:
+        try:
+            from wewriter import webapp
+        except Exception:
+            logs.logger.exception("网页界面组件加载失败，改用经典界面")
+        else:
+            root.destroy()
+            try:
+                webapp.run(db, vault, base, demo=args.demo, minimized=args.minimized)
+                return
+            except Exception:
+                logs.logger.exception("网页界面启动失败，改用经典界面")
+            root = tk.Tk()
+            root.withdraw()
     app = App(root, db, vault, base, demo=args.demo)
     if args.smoke_test:
         root.after(50, lambda: smoke(app, root, args.smoke_test))

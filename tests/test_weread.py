@@ -85,15 +85,20 @@ class WeReadTest(unittest.TestCase):
         source.browser.shelf.return_value = [{'bookId': BOOK, 'title': '测试号'}]
         source.browser.cookie_state.return_value = '{"version":2,"cookies":[]}'
         source.browser.articles.side_effect = ApiError('-2041', True, kind='weread_ticket')
-        with self.assertRaisesRegex(ApiError, 'Skill Key.*软件设置'):
+        with self.assertRaisesRegex(ApiError, '采集服务配置.*极致了 Key'):
             source.articles(BOOK, 10)
         source.close()
 
-    def test_expired_article_credential_gives_available_recovery_steps(self):
+    def test_2041_is_reported_as_server_refusal_not_login_expiry(self):
+        # Verified 2026-10-23: the official web reader got the same -2041 right
+        # after a fresh QR login, and rescanning in the app did not clear it.
         with self.assertRaises(ApiError) as raised:
             WeReadSession.check({'errCode': -2041})
         message = str(raised.exception)
-        self.assertIn('Edge 重新扫码登录', message)
+        self.assertEqual(raised.exception.kind, 'weread_ticket')
+        self.assertIn('登录本身仍有效', message)
+        self.assertIn('稍后再采集', message)
+        self.assertNotIn('请在公众号管理中使用 Edge 重新扫码登录', message)
         self.assertNotIn('登录设备', message)
 
     def test_unknown_user_credential_requires_edge_relogin(self):
@@ -326,6 +331,211 @@ class WeReadTest(unittest.TestCase):
         self.assertEqual(pages, [{'reviews': [group('recovered')]}])
         self.assertEqual((browser.ticket, browser.wrpa), ('fresh', 'present'))
         page.close.assert_called_once()
+
+    def test_browser_pages_history_list_by_offset_until_limit_or_exhausted(self):
+        cancel = Mock(is_set=Mock(return_value=False), wait=Mock(return_value=False))
+        browser = WeReadBrowser(Path(self.temp.name) / 'profile', cancel=cancel)
+        context, page = Mock(), Mock()
+        context.new_page.return_value = page
+        browser.open = Mock(return_value=context)
+        handlers = {}
+        page.on.side_effect = lambda name, callback: handlers.__setitem__(name, callback)
+        first = Mock(url=f'https://weread.qq.com/web/mp/articles?bookId={BOOK}&offset=0', status=200)
+        first.json.return_value = {'reviews': [group('a'), group('b')]}
+        page.goto.side_effect = lambda *args, **kwargs: handlers['response'](first)
+        later = {2: {'reviews': [group('c'), group('d')]}, 4: {'reviews': []}}
+        page.evaluate.side_effect = lambda script, args: later[args['offset']]
+        pages = browser.articles(BOOK, 10)
+        self.assertEqual([len(p['reviews']) for p in pages], [2, 2, 0])
+        self.assertEqual([c.args[1]['offset'] for c in page.evaluate.call_args_list], [2, 4])
+        page.evaluate.reset_mock()
+        self.assertEqual(len(browser.articles(BOOK, 3)), 2)
+        self.assertEqual(page.evaluate.call_count, 1)
+        page.evaluate.side_effect = lambda script, args: {'errCode': -2041}
+        self.assertEqual(len(browser.articles(BOOK, 10)), 1)
+
+    def test_browser_offset_pages_feed_history_list_coverage(self):
+        source = WeReadSource('[]', Mock(), session=Mock())
+        source.books = {BOOK}
+        source.browser = Mock()
+        source._save_browser_state = Mock()
+        source.browser.articles.return_value = [
+            {'reviews': [group('a'), group('b')]}, {'reviews': [group('c')]}, {'reviews': []}]
+        items = source.articles(BOOK, 10)
+        self.assertEqual(len(items), 3)
+        self.assertEqual(source.last_coverage, {'mode': 'history_list', 'end': 'exhausted'})
+
+    def test_browser_stops_paging_once_time_window_is_covered(self):
+        cancel = Mock(is_set=Mock(return_value=False), wait=Mock(return_value=False))
+        browser = WeReadBrowser(Path(self.temp.name) / 'profile', cancel=cancel)
+        context, page = Mock(), Mock()
+        context.new_page.return_value = page
+        browser.open = Mock(return_value=context)
+        handlers = {}
+        page.on.side_effect = lambda name, callback: handlers.__setitem__(name, callback)
+        first = Mock(url=f'https://weread.qq.com/web/mp/articles?bookId={BOOK}&offset=0', status=200)
+        first.json.return_value = {'reviews': [dict(group('a'), createTime=2000),
+                                               dict(group('b'), createTime=1500)]}
+        page.goto.side_effect = lambda *args, **kwargs: handlers['response'](first)
+        page.evaluate.return_value = {'reviews': [dict(group('c'), createTime=900)]}
+        self.assertEqual(len(browser.articles(BOOK, 50, 1800)), 1)
+        page.evaluate.assert_not_called()
+        self.assertEqual(len(browser.articles(BOOK, 50, 1000)), 2)
+        self.assertEqual(page.evaluate.call_count, 1)
+
+    def test_list_refusal_is_not_retried_and_skips_later_accounts(self):
+        from datetime import datetime, timezone
+        other = 'MP_WXS_456'
+        source = WeReadSource('[]', Mock(), session=Mock(),
+                              skill=Mock(review=Mock(return_value={
+                                  'mpInfo': {'title': '最新', 'time': 1791534053}})))
+        source.books = {BOOK, other}
+        source.browser = Mock()
+        source._save_browser_state = Mock()
+        source.request = Mock(side_effect=lambda path, params: {'reviewId': params['bookId'] + '_tok'})
+        source.browser.articles.side_effect = ApiError('-2041', True, kind='weread_ticket')
+        source.list_since = datetime.fromtimestamp(1791000000, timezone.utc)
+        self.assertEqual(source.articles(BOOK, 10)[0]['metric_source'], 'weread_skill')
+        source.browser.articles.assert_called_once_with(BOOK, 10, 1791000000.0)
+        source.browser.reload_worker.assert_not_called()
+        self.assertEqual(source.articles(other, 10)[0]['metric_source'], 'weread_skill')
+        self.assertEqual(source.browser.articles.call_count, 1)
+        self.assertEqual(source.last_coverage['mode'], 'latest_only')
+
+    def test_provider_lists_by_biz_and_ranks_only_window_articles(self):
+        from datetime import datetime, timezone
+        account = 'MP_WXS_3533509125'
+        biz = 'MzUzMzUwOTEyNQ=='
+        def row(mid, ts, owner=biz):
+            return {'url': f'http://mp.weixin.qq.com/s?__biz={owner}&mid={mid}&idx=1&sn=x{mid}',
+                    'title': 't' + str(mid), 'posted_at': ts}
+        provider = Mock()
+        provider.articles.return_value = [row(1, 1791000300), row(2, 1791000200),
+                                          row(3, 1790000000), row(4, 1791000250, 'Other==')]
+        def metrics(url):
+            if 'mid=2' in url:
+                raise ApiError('HTTP 503', kind='network')
+            return {'read_count': 1706, 'like_count': 10}
+        provider.metrics.side_effect = metrics
+        source = WeReadSource('[]', Mock(), session=Mock(), provider=provider)
+        source.books = {account}
+        source.book_titles = {account: '思博产业研究'}
+        source.list_since = datetime.fromtimestamp(1791000000, timezone.utc)
+        items = source.articles(account, 20)
+        provider.articles.assert_called_once_with('思博产业研究', 20)
+        self.assertEqual([i['title'] for i in items], ['t1', 't2', 't3'])
+        self.assertEqual([i['read_count'] for i in items], [1706, None, None])
+        self.assertEqual(provider.metrics.call_count, 2)
+        self.assertIn('不按 0 阅读处理', items[0]['collection_warning'])
+        self.assertEqual(items[0]['metric_source'], 'everyinfra_metrics')
+        self.assertEqual(source.last_coverage,
+                         {'mode': 'history_list', 'end': 'window', 'provider': 'everyinfra'})
+        source.list_since = datetime.fromtimestamp(1789000000, timezone.utc)
+        source.articles(account, 20)
+        self.assertEqual(source.last_coverage['end'], 'provider_page')
+
+    def test_dajiala_list_carries_reads_and_pages_until_window_start(self):
+        from datetime import datetime, timezone
+        account, biz = 'MP_WXS_3533509125', 'MzUzMzUwOTEyNQ=='
+        def post(mid, ts, read):
+            return {'url': f'http://mp.weixin.qq.com/s?__biz={biz}&mid={mid}&idx=1&sn=s{mid}&chksm=c',
+                    'title': 't' + str(mid), 'post_time': ts, 'read': read, 'zan': 1}
+        primary, backup = Mock(), Mock()
+        pages = {'': {'data': [post(1, 1791000300, 1761), post(2, 1791000200, 0)], 'offset': 'p2', 'is_end': 0},
+                 'p2': {'data': [post(3, 1790000000, 9)], 'offset': 'p3', 'is_end': 0}}
+        primary.history.side_effect = lambda name, offset: pages[offset]
+        source = WeReadSource('[]', Mock(), session=Mock(), provider=backup, primary=primary)
+        source.books, source.book_titles = {account}, {account: '思博产业研究'}
+        source.list_since = datetime.fromtimestamp(1791000000, timezone.utc)
+        items = source.articles(account, 20)
+        self.assertEqual([c.args for c in primary.history.call_args_list],
+                         [('思博产业研究', ''), ('思博产业研究', 'p2')])
+        self.assertEqual([(i['title'], i['read_count']) for i in items],
+                         [('t1', 1761), ('t2', 0), ('t3', 9)])
+        self.assertEqual(items[0]['metric_source'], 'dajiala_list')
+        self.assertEqual(source.last_coverage['provider'], 'dajiala')
+        self.assertEqual(source.last_coverage['end'], 'window')
+        backup.articles.assert_not_called()
+        backup.metrics.assert_not_called()
+
+    def test_dajiala_digit_string_fields_are_numbers_and_stop_paging(self):
+        from datetime import datetime, timezone
+        account, biz = 'MP_WXS_3931691072', 'MzkzMTY5MTA3Mg=='
+        primary = Mock()
+        primary.history.return_value = {'data': [
+            {'url': f'https://mp.weixin.qq.com/s?__biz={biz}&mid=1&idx=1&sn=a', 'title': 'x',
+             'post_time': '1791906180', 'read': '1235', 'zan': '9'}], 'offset': 'next', 'is_end': 0}
+        source = WeReadSource('[]', Mock(), session=Mock(), primary=primary)
+        source.books, source.book_titles = {account}, {account: '杜工谈谈'}
+        source.list_since = datetime.fromtimestamp(1792000000, timezone.utc)
+        items = source.articles(account, 24)
+        self.assertEqual((items[0]['read_count'], items[0]['like_count']), (1235, 9))
+        self.assertEqual(primary.history.call_count, 1)
+        self.assertEqual(source.last_coverage['end'], 'window')
+
+    def test_dajiala_failure_falls_back_to_everyinfra_with_warning(self):
+        account, biz = 'MP_WXS_3533509125', 'MzUzMzUwOTEyNQ=='
+        primary, backup = Mock(), Mock()
+        primary.history.side_effect = ApiError('极致了返回错误码 -1：限流', kind='dajiala')
+        backup.articles.return_value = [{'url': f'https://mp.weixin.qq.com/s?__biz={biz}&mid=1&idx=1&sn=a',
+                                         'title': 'x', 'posted_at': 1791000300}]
+        backup.metrics.return_value = {'read_count': 5}
+        source = WeReadSource('[]', Mock(), session=Mock(), provider=backup, primary=primary)
+        source.books, source.book_titles = {account}, {account: '思博产业研究'}
+        items = source.articles(account, 5)
+        self.assertEqual(items[0]['read_count'], 5)
+        self.assertIn('已改用备用数据服务', items[0]['collection_warning'])
+        self.assertEqual(source.last_coverage['provider'], 'everyinfra')
+        backup.articles.side_effect = ApiError('HTTP 503：服务暂不可用')
+        with self.assertRaisesRegex(ApiError, '极致了.*HTTP 503'):
+            source.articles(account, 5)
+
+    def test_provider_capacity_refusal_is_not_repeated_for_later_accounts(self):
+        provider = Mock()
+        provider.articles.side_effect = ApiError('HTTP 503：服务暂不可用，请稍后重试')
+        source = WeReadSource('[]', Mock(), session=Mock(), provider=provider)
+        source.books = {'MP_WXS_1', 'MP_WXS_2'}
+        source.book_titles = {'MP_WXS_1': 'a', 'MP_WXS_2': 'b'}
+        with self.assertRaises(ApiError):
+            source.articles('MP_WXS_1', 5)
+        with self.assertRaisesRegex(ApiError, '容量不足，未再请求'):
+            source.articles('MP_WXS_2', 5)
+        self.assertEqual(provider.articles.call_count, 1)
+
+    def test_provider_rejects_list_of_another_account(self):
+        provider = Mock()
+        provider.articles.return_value = [{'url': 'https://mp.weixin.qq.com/s?__biz=Other==&mid=1&idx=1&sn=a',
+                                           'title': 'x', 'posted_at': 1791000300}]
+        source = WeReadSource('[]', Mock(), session=Mock(), provider=provider)
+        source.books = {BOOK}
+        source.book_titles = {BOOK: '同名号'}
+        with self.assertRaisesRegex(ApiError, '不属于该公众号'):
+            source.articles(BOOK, 5)
+        provider.metrics.assert_not_called()
+
+    def test_provider_article_body_is_read_from_public_original(self):
+        db = Database(Path(self.temp.name) / 'p.sqlite')
+        source = WeReadSource('[]', db, session=Mock(), provider=Mock())
+        source.browser = Mock()
+        source._save_browser_state = Mock()
+        body = '<div id="js_content">' + '正文' * 80 + '</div>'
+        original = 'https://mp.weixin.qq.com/s?__biz=MA==&mid=1&idx=1&sn=a&chksm=c1'
+        provider = source.provider
+        provider.articles.return_value = [{'url': original.replace('https', 'http'),
+                                           'title': 't', 'posted_at': 1791000300}]
+        provider.metrics.return_value = {'read_count': 1}
+        source.books, source.book_titles = {'MP_WXS_0'}, {'MP_WXS_0': 'n'}
+        url = source.articles('MP_WXS_0', 5)[0]['url']
+        source._public_page = Mock(return_value=body)
+        self.assertEqual(source.content(url), '正文' * 80)
+        source._public_page.assert_called_once_with(original)
+        source.browser.content.assert_not_called()
+        source.browser.public_content.assert_not_called()
+        # A verification page from the plain request falls back to Edge.
+        source._public_page.return_value = '<html>环境异常</html>'
+        source.browser.public_content.return_value = body
+        self.assertEqual(source.content(url), '正文' * 80)
+        source.browser.public_content.assert_called_once_with(original)
 
     def test_old_cookie_only_login_state_still_loads(self):
         old = '[{"name":"wr_skey","value":"x","domain":".weread.qq.com","path":"/","secure":true,"expires":null}]'

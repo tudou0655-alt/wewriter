@@ -36,7 +36,7 @@ WeWriter 是为付费客户（企业补贴申报咨询方向）开发的 Windows
 | **稿件阅读与审核** | **设置** |
 | ![稿件](docs/showcase/screenshots/draft-view.png) | ![设置](docs/showcase/screenshots/settings.png) |
 
-截图中的公众号名称已替换为“示例公众号A–E”。
+截图中的公众号名称与原文标题、正文已隐去（显示为“示例公众号A–E”“原文标题已隐去”）；稿件为软件生成内容，原样展示。
 
 ### 生成示例
 

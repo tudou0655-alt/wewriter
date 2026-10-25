@@ -24,6 +24,27 @@ WeWriter 是为付费客户（企业补贴申报咨询方向）开发的 Windows
 
 技术栈：Python 3.13 · OpenAI Responses API · DeepSeek · pywebview · Playwright · SQLite · python-docx · PyInstaller。代码：`wewriter/`（采集、引擎、模型接口、数据库、网页界面 `wewriter/web/`），测试：`tests/`，协作记录：`docs/collab/`（Claude Code 与 Codex 分工开发的任务看板与交接文档）。
 
+### 界面预览
+
+| 工作台 | 工作台（深色） |
+|---|---|
+| ![工作台](docs/showcase/screenshots/workbench-light.png) | ![工作台深色](docs/showcase/screenshots/workbench-dark.png) |
+| **任务详情（采集漏斗与选文）** | **公众号** |
+| ![任务详情](docs/showcase/screenshots/task-detail-light.png) | ![公众号](docs/showcase/screenshots/accounts-light.png) |
+| **文章库（按阅读量）** | **文章详情** |
+| ![文章库](docs/showcase/screenshots/articles-light.png) | ![文章详情](docs/showcase/screenshots/article-detail-light.png) |
+| **稿件库** | **稿件阅读与审核** |
+| ![稿件库](docs/showcase/screenshots/drafts-light.png) | ![稿件](docs/showcase/screenshots/draft-view-light.png) |
+| **设置** | |
+| ![设置](docs/showcase/screenshots/settings-light.png) | |
+
+### 生成示例
+
+以下两篇为 2026-10-25 真实任务的自动生成稿（联网检索 + AI 二审，未经人工修改），按导出格式保存：正文不含内部来源编号，文末附参考资料网站。
+
+- [四部门10月23日发布防中介通知｜专精特新申报材料将接受跨部门核验](docs/showcase/articles/sample-1.md)
+- [全过程工程咨询不是补贴申报｜政府投资项目优先开展，企业应提前配置负责人](docs/showcase/articles/sample-2.md)
+
 ## 客户使用
 
 界面共五页：工作台、公众号、文章库、稿件库、设置。所有时间按中国时间（UTC+8）显示。

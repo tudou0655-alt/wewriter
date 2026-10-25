@@ -878,6 +878,19 @@ DIALOG_FILTERS = {'docx': 'Word 文档 (*.docx)', 'md': 'Markdown 文件 (*.md)'
 BACKUP_FILTER = 'SQLite 备份 (*.sqlite)'
 
 
+def window_background(theme):
+    """Window colour shown before a page paints: the page background of the theme in use."""
+    if theme == 'system':
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize') as key:
+                theme = 'light' if winreg.QueryValueEx(key, 'AppsUseLightTheme')[0] else 'dark'
+        except OSError:
+            theme = 'dark'
+    return '#f1ebde' if theme == 'light' else '#0e1416'
+
+
 def window_size(preferred=(1280, 860)):
     """Initial window size in logical pixels, fitted to the screen's work area (taskbar excluded).
 
@@ -906,7 +919,7 @@ def run(db, vault, data_dir, demo=False, minimized=False):
     window = webview.create_window('WeWriter 公众号工作台' + (' · 演示数据' if demo else ''),
                                    str(WEB_DIR / 'workbench.html'), js_api=api, width=width, height=height,
                                    min_size=(min(900, width), min(600, height)), maximized=fill,
-                                   hidden=minimized, background_color='#0e1416')
+                                   hidden=minimized, background_color=window_background(backend.ui_prefs().get('theme', 'system')))
     backend.window = window
     state = {'quit': False, 'tray': None}
 

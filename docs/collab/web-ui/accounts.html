@@ -225,19 +225,19 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let seq = 10;
 const accounts = [
-  { id: 1, name: '惠企策论', mp: 'MP_WXS_3533509125', on: true, last: { when: '10-25 10:02', got: 15, latest: '10-25 09:15', ok: true,
+  { id: 1, name: '示例公众号A', mp: 'MP_WXS_3533509125', on: true, last: { when: '10-25 10:02', got: 15, latest: '10-25 09:15', ok: true,
     recent: [['工信部｜防范不良中介机构影响专精特新申报', '10-23 18:24'], ['2026年｜国家级单项冠军企业申报评审', '10-22 22:01']] } },
-  { id: 2, name: '中企讯重大投资项目资讯', mp: 'MP_WXS_3090280306', on: true, last: { when: '10-25 10:02', got: 0, ok: false,
+  { id: 2, name: '示例公众号B', mp: 'MP_WXS_3090280306', on: true, last: { when: '10-25 10:02', got: 0, ok: false,
     reason: '采集服务繁忙（HTTP 503），这次没读到文章，也没有扣费。下一个任务会自动重试。' } },
-  { id: 3, name: '悠米一下', mp: 'MP_WXS_3922701729', on: true, last: { when: '10-25 10:02', got: 10, latest: '10-21 21:56', ok: true,
+  { id: 3, name: '示例公众号C', mp: 'MP_WXS_3922701729', on: true, last: { when: '10-25 10:02', got: 10, latest: '10-21 21:56', ok: true,
     recent: [['做项目申报，我手机里常年置顶的这些官方号', '10-21 21:56']] } },
-  { id: 4, name: '咨询日记', mp: 'MP_WXS_3930946218', on: true, last: { when: '10-25 10:02', got: 10, latest: '10-24 23:40', ok: true,
+  { id: 4, name: '示例公众号D', mp: 'MP_WXS_3930946218', on: true, last: { when: '10-25 10:02', got: 10, latest: '10-24 23:40', ok: true,
     recent: [['全过程工程咨询，开始行动了！', '10-24 23:40'], ['贵州133万产业大招商项目谋划编制 中标了！', '10-24 15:55']] } },
-  { id: 5, name: '杜工谈谈', mp: 'MP_WXS_3931691072', on: false, last: { when: '10-20 09:00', got: 11, latest: '10-13 23:43', ok: true,
+  { id: 5, name: '示例公众号E', mp: 'MP_WXS_3931691072', on: false, last: { when: '10-20 09:00', got: 11, latest: '10-13 23:43', ok: true,
     recent: [['国家到底给不给钱？专精特新的“钱规则”', '10-13 23:43']] } },
 ];
-const SHELF = [['惠企策论', 'MP_WXS_3533509125'], ['中企讯重大投资项目资讯', 'MP_WXS_3090280306'], ['悠米一下', 'MP_WXS_3922701729'],
-               ['咨询日记', 'MP_WXS_3930946218'], ['杜工谈谈', 'MP_WXS_3931691072'], ['政策速递', 'MP_WXS_3301122334'],
+const SHELF = [['示例公众号A', 'MP_WXS_3533509125'], ['示例公众号B', 'MP_WXS_3090280306'], ['示例公众号C', 'MP_WXS_3922701729'],
+               ['示例公众号D', 'MP_WXS_3930946218'], ['示例公众号E', 'MP_WXS_3931691072'], ['政策速递', 'MP_WXS_3301122334'],
                ['园区招商观察', 'MP_WXS_3402233445']];
 const ui = { q: '', filter: 'all', sync: null, loggedIn: false, fresh: new Set(), page: 0 };
 const PER = 10;   // accounts per page

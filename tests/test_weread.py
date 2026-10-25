@@ -466,7 +466,7 @@ class WeReadTest(unittest.TestCase):
             {'url': f'https://mp.weixin.qq.com/s?__biz={biz}&mid=1&idx=1&sn=a', 'title': 'x',
              'post_time': '1791906180', 'read': '1235', 'zan': '9'}], 'offset': 'next', 'is_end': 0}
         source = WeReadSource('[]', Mock(), session=Mock(), primary=primary)
-        source.books, source.book_titles = {account}, {account: '杜工谈谈'}
+        source.books, source.book_titles = {account}, {account: '示例公众号E'}
         source.list_since = datetime.fromtimestamp(1792000000, timezone.utc)
         items = source.articles(account, 24)
         self.assertEqual((items[0]['read_count'], items[0]['like_count']), (1235, 9))

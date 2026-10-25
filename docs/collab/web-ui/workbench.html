@@ -482,8 +482,8 @@ $('dw-close').addEventListener('click', () => { $('drawer').hidden = true; });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('drawer').hidden = true; });
 $('dw-actions').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { toast(b.textContent + '（示例）'); $('drawer').hidden = true; } });
 
-const ACCOUNTS = [['惠企策论', 15, '10-25 09:15'], ['中企讯重大投资项目资讯', 15, '10-25 04:00'],
-                  ['悠米一下', 10, '10-21 21:56'], ['咨询日记', 6, '10-24 23:40']];
+const ACCOUNTS = [['示例公众号A', 15, '10-25 09:15'], ['示例公众号B', 15, '10-25 04:00'],
+                  ['示例公众号C', 10, '10-21 21:56'], ['示例公众号D', 6, '10-24 23:40']];
 function howChosen(range, count, picked, failed) {
   const list = picked.map(([t, r]) => `<li><span>${t}</span><span>阅读 ${r.toLocaleString()}</span></li>`).join('');
   return `

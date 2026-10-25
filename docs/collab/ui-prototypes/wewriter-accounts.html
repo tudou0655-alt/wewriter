@@ -20,7 +20,7 @@
 <script>
 (()=>{
 const root=document.getElementById('ww-accounts'),q=s=>root.querySelector(s);
-let accounts=[{id:1,name:'惠企策论',enabled:true,time:'10-25 09:15',state:'采集正常'},{id:2,name:'中企讯重大投资项目资讯',enabled:true,time:'10-24 18:30',state:'上次采集失败',error:true},{id:3,name:'悠米一下',enabled:true,time:'10-25 08:40',state:'采集正常'},{id:4,name:'咨询日记',enabled:true,time:'10-25 07:20',state:'采集正常'},{id:5,name:'杜工谈谈',enabled:false,time:'10-24 16:05',state:'采集正常'}],expanded=null,confirm=null,nextId=6;
+let accounts=[{id:1,name:'示例公众号A',enabled:true,time:'10-25 09:15',state:'采集正常'},{id:2,name:'示例公众号B',enabled:true,time:'10-24 18:30',state:'上次采集失败',error:true},{id:3,name:'示例公众号C',enabled:true,time:'10-25 08:40',state:'采集正常'},{id:4,name:'示例公众号D',enabled:true,time:'10-25 07:20',state:'采集正常'},{id:5,name:'示例公众号E',enabled:false,time:'10-24 16:05',state:'采集正常'}],expanded=null,confirm=null,nextId=6;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function render(){
 const term=q('#wa-search').value.trim().toLowerCase(),visible=accounts.filter(a=>a.name.toLowerCase().includes(term));
@@ -30,7 +30,7 @@ q('#wa-list').innerHTML=visible.length?visible.map(a=>'<div class="account"><div
 function closeAdd(){q('#wa-addbox').hidden=true;q('#wa-add').setAttribute('aria-expanded','false');q('#wa-add').focus();}
 q('#wa-add').onclick=()=>{const box=q('#wa-addbox');box.hidden=!box.hidden;q('#wa-add').setAttribute('aria-expanded',!box.hidden);if(!box.hidden)q('#wa-name').focus();};
 q('#wa-cancel').onclick=closeAdd;
-const shelf=[{key:'demo-shelf-1',name:'惠企策论'},{key:'demo-shelf-5',name:'杜工谈谈'},{key:'demo-shelf-6',name:'工程观察（示例）'},{key:'demo-shelf-7',name:'建设资讯（示例）'}];
+const shelf=[{key:'demo-shelf-1',name:'示例公众号A'},{key:'demo-shelf-5',name:'示例公众号E'},{key:'demo-shelf-6',name:'工程观察（示例）'},{key:'demo-shelf-7',name:'建设资讯（示例）'}];
 accounts.forEach(a=>a.shelfKey='demo-shelf-'+a.id);
 function syncChoices(){const boxes=[...root.querySelectorAll('[data-pick]')],n=boxes.filter(b=>b.checked).length;q('#wa-import').textContent='导入所选（'+n+'）';q('#wa-import').disabled=n===0;q('#wa-all').checked=boxes.length>0&&n===boxes.length;q('#wa-all').indeterminate=n>0&&n<boxes.length;q('#wa-all').disabled=boxes.length===0;}
 q('#wa-sync').onclick=()=>{q('#wa-addbox').hidden=true;q('#wa-add').setAttribute('aria-expanded','false');q('#wa-syncbox').hidden=false;q('#wa-sync').setAttribute('aria-expanded','true');q('#wa-scan').hidden=false;q('#wa-pick').hidden=true;q('#wa-scanned').focus();};

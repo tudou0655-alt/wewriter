@@ -171,7 +171,7 @@ const HOUR = 3600e3;
 function cnNow() { return new Date(Date.now() + (new Date().getTimezoneOffset() + 480) * 60000); }
 function stamp(d, year) { return `${year ? d.getFullYear() + '-' : ''}${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 
-const ACCTS = ['惠企策论', '中企讯重大投资项目资讯', '悠米一下', '咨询日记', '杜工谈谈'];
+const ACCTS = ['示例公众号A', '示例公众号B', '示例公众号C', '示例公众号D', '示例公众号E'];
 const TITLES = [
   '工信部｜防范不良中介机构影响专精特新申报', '2026年｜国家级单项冠军企业申报评审要点', '节能降碳专项：供热系统降碳改造项目申报',
   '从“被排除”到“重点支持”：平板玻璃节能降碳的中央资金申报路径', '全过程工程咨询，开始行动了！', '贵州133万产业大招商项目谋划编制 中标了！',

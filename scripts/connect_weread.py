@@ -31,7 +31,7 @@ def main():
     saved = []
     for item in items:
         body = source.content(item['url'])
-        article = db.save_article({'source_key': digest(item['url']), 'account_name': '杜工谈谈',
+        article = db.save_article({'source_key': digest(item['url']), 'account_name': '示例公众号E',
                                   'title': item['title'], 'url': item['url'], 'published_at': item['posted_at']})
         db.execute("UPDATE articles SET content=?,content_hash=?,error='' WHERE id=?", (body, digest(body), article))
         saved.append({'title': item['title'], 'characters': len(body), 'published_at': item['posted_at']})

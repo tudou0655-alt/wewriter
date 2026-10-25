@@ -26,17 +26,17 @@ WeWriter 是为付费客户（企业补贴申报咨询方向）开发的 Windows
 
 ### 界面预览
 
-| 工作台 | 工作台（深色） |
+| 工作台 | 任务详情（采集漏斗与选文） |
 |---|---|
-| ![工作台](docs/showcase/screenshots/workbench-light.png) | ![工作台深色](docs/showcase/screenshots/workbench-dark.png) |
-| **任务详情（采集漏斗与选文）** | **公众号** |
-| ![任务详情](docs/showcase/screenshots/task-detail-light.png) | ![公众号](docs/showcase/screenshots/accounts-light.png) |
-| **文章库（按阅读量）** | **文章详情** |
-| ![文章库](docs/showcase/screenshots/articles-light.png) | ![文章详情](docs/showcase/screenshots/article-detail-light.png) |
-| **稿件库** | **稿件阅读与审核** |
-| ![稿件库](docs/showcase/screenshots/drafts-light.png) | ![稿件](docs/showcase/screenshots/draft-view-light.png) |
-| **设置** | |
-| ![设置](docs/showcase/screenshots/settings-light.png) | |
+| ![工作台](docs/showcase/screenshots/workbench.png) | ![任务详情](docs/showcase/screenshots/task-detail.png) |
+| **公众号** | **文章库（按阅读量）** |
+| ![公众号](docs/showcase/screenshots/accounts.png) | ![文章库](docs/showcase/screenshots/articles.png) |
+| **文章详情** | **稿件库** |
+| ![文章详情](docs/showcase/screenshots/article-detail.png) | ![稿件库](docs/showcase/screenshots/drafts.png) |
+| **稿件阅读与审核** | **设置** |
+| ![稿件](docs/showcase/screenshots/draft-view.png) | ![设置](docs/showcase/screenshots/settings.png) |
+
+截图中的公众号名称已替换为“示例公众号A–E”。
 
 ### 生成示例
 

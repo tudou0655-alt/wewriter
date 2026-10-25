@@ -71,4 +71,4 @@
 - [国家发展改革委办公厅关于加快推动工程咨询行业高质量发展的意见](https://app.www.gov.cn/govdata/gov/202509/25/537372/article.html)
 - [关于印发《福建省房屋建筑和市政基础设施项目工程建设全过程咨询管理规定（试行）》的通知_ 规范性文件（闽建）_福建省住房和城乡建设厅](https://zjt.fujian.gov.cn/xxgk/zfxxgkzl/xxgkml/dfxfgzfgzhgfxwj/gfxwj/202501/t20250115_6700866.htm)
 - [江苏省住房和城乡建设厅 厅发文件 省住房城乡建设厅关于印发《江苏省全过程工程咨询服务合同示范文本（试行）》和《江苏省全过程工程咨询服务导则（试行）》的通知](https://jsszfhcxjst.jiangsu.gov.cn/art/2018/12/17/art_8639_7955856.html)
-- [全过程工程咨询，开始行动了！](https://mp.weixin.qq.com/s?__biz=MzkzMDk0NjIxOA%3D%3D&mid=2247491453&idx=1&sn=37366753b3e06ecbf1e480844cd80738)
+- 公众号原文（链接已隐去）

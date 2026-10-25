@@ -165,6 +165,9 @@ async function openDetail(jobId) {
     <h4>各公众号读取情况</h4><div class="scroll-x"><table class="accts"><thead><tr><th>公众号</th><th>读到</th><th>最近一篇</th></tr></thead><tbody>
     ${d.accounts.map(a => a.failed ? `<tr><td>${esc(a.name)}</td><td class="bad" colspan="2">读取失败：${esc(a.error)}</td></tr>`
       : `<tr><td>${esc(a.name)}</td><td>${a.got} 篇</td><td>${a.latest}</td></tr>`).join('')}</tbody></table></div>`;
+  } else if (d.rewrite) {
+    html += `<h4>这次写的是哪篇</h4><div class="note">在文章库点“再写一篇”发起，不重新采集；沿用这篇文章并换一个角度写。</div>`
+      + (d.picked.length ? `<ul class="picked">${d.picked.map(p => `<li><span>${esc(p.title)}</span><span>阅读 ${fmtNum(p.reads)}</span></li>`).join('')}</ul>` : '');
   } else html += '<div class="note" style="margin-top: 16px">这个任务还没有采集记录。</div>';
   $('dw-body').innerHTML = html;
   const actions = [];

@@ -153,3 +153,26 @@ class RewriteHitTest(unittest.TestCase):
                 Engine(f.db, test_core.FakeVault()).rewrite_job(99999, f.config)
         finally:
             f.tearDown()
+
+
+class RewriteDetailTest(unittest.TestCase):
+    def test_rewrite_task_detail_shows_the_article_not_a_funnel(self):
+        import tempfile
+        from pathlib import Path
+        import test_core
+        from wewriter import webapp
+        f = test_core.CoreTest(); f.setUp()
+        try:
+            from wewriter.api import digest
+            url = 'https://mp.weixin.qq.com/s/hit'
+            aid = f.db.save_article({'source_key': digest(url), 'account_name': '号', 'title': '爆款', 'url': url,
+                                     'published_at': '2026-10-24T00:00:00+00:00'})
+            backend = webapp.Backend(f.db, test_core.FakeVault(), Path(tempfile.mkdtemp()), demo=False)
+            job = backend.engine.rewrite_job(aid, f.config)
+            detail = webapp.Api(backend).wb_detail(job['id'])
+            self.assertTrue(detail['rewrite'])
+            self.assertFalse(detail['has_funnel'])
+            self.assertEqual([p['title'] for p in detail['picked']], ['爆款'])
+            self.assertTrue(detail['title'].startswith('再写一篇'))
+        finally:
+            f.tearDown()

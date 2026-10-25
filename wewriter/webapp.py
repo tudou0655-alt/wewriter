@@ -321,10 +321,13 @@ class Api:
             alert = '任务已手动停止，已写好的稿件都保留着。'
         elif warnings:
             alert = '；'.join(redact(str(w)) for w in warnings[:3])
-        return {'title': '当前任务详情' if summary['running'] else f"任务 · {china_time(job['created_at'])}",
+        # 文章库“再写一篇” tasks reuse a chosen article and never collect: no funnel to explain.
+        rewrite = str(job['run_key']).startswith('rewrite:')
+        return {'title': '当前任务详情' if summary['running'] else
+                f"{'再写一篇' if rewrite else '任务'} · {china_time(job['created_at'])}", 'rewrite': rewrite,
                 'sub': f"{summary['range']} · 目标 {summary['target']} 篇 · " +
                        (f"正在{PHASES[min(summary['step'], 4)]}" if summary['running'] else job_status_label(job)),
-                'alert': alert, 'has_funnel': bool(c), 'accounts_n': len(accounts), 'returned': returned,
+                'alert': alert, 'has_funnel': bool(c) and not rewrite, 'accounts_n': len(accounts), 'returned': returned,
                 'in_window': max(0, returned - outside), 'outside': outside,
                 'removed': sum(n for n, _ in reasons), 'reasons': [f'{label} {n} 篇' for n, label in reasons],
                 'candidates': c.get('queued', 0), 'picked': picked, 'accounts': accounts,

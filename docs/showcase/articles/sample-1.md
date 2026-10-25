@@ -66,5 +66,5 @@
 
 - [四部门关于进一步防范不良中介机构影响优质中小企业培育认定的通知](https://wap.miit.gov.cn/zwgk/zcwj/wjfb/tz/art/2026/art_7cce197766e34445bf82d716b017856d.html?utm_source=openai)
 - [工业和信息化部办公厅关于开展2026年度专精特新“小巨人”企业认定和复核工作的通知](https://www.miit.gov.cn/jgsj/qyj/wjfb/art/2026/art_83857a4773ac4583bd1540eeb78bcbcb.html?_refluxos=a10&utm_source=openai)
-- [工信部｜防范不良中介机构影响专精特新申报](https://mp.weixin.qq.com/s?__biz=MzUzMzUwOTEyNQ%3D%3D&mid=2247510068&idx=1&sn=e731a3ad795082bd7d43096fce4603a2)
+- 公众号原文（链接已隐去）
 - [广州市工业和信息化局关于开展2026年度专精特新中小企业认定和复核工作的通知-广州市工业和信息化局](https://gxj.gz.gov.cn/yw/tzgg/content/post_10992265.html?utm_source=openai)

@@ -24,6 +24,8 @@ WeWriter 是为付费客户（企业补贴申报咨询方向）开发的 Windows
 
 技术栈：Python 3.13 · OpenAI Responses API · DeepSeek · pywebview · Playwright · SQLite · python-docx · PyInstaller。代码：`wewriter/`（采集、引擎、模型接口、数据库、网页界面 `wewriter/web/`），测试：`tests/`，协作记录：`docs/collab/`（Claude Code 与 Codex 分工开发的任务看板与交接文档）。
 
+> **声明：** 本项目仅供学习与技术交流。使用微信读书、极致了、EveryInfra、OpenAI、DeepSeek 等第三方平台时，请遵守其用户协议与服务条款；采集的公众号内容版权归原作者所有，生成稿件发布前须人工审核。
+
 ### 界面预览
 
 | 工作台 | 任务详情（采集漏斗与选文） |

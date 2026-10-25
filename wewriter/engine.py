@@ -11,6 +11,7 @@ Failures carry a structured ``code`` (see ``ErrorCode``) that is stored in
 ``jobs.error_code``; batch logic decides on codes, never on message text.
 """
 import json
+import re
 import threading
 import time
 import uuid
@@ -501,18 +502,30 @@ class Engine:
                 except Exception:
                     logger.exception("刷新批次状态失败")
 
-    def rewrite_job(self, article_id, config):
+    def article_drafts(self, article_id):
+        """Drafts already written from one source article, oldest first."""
+        return [row for row in self.db.rows('SELECT id,title,body,sources FROM drafts WHERE cleared=0 ORDER BY id')
+                if any(s.get('article_id') == int(article_id) for s in json.loads(row['sources'] or '[]'))]
+
+    def rewrite_job(self, article_id, config, note=''):
         """A new single-article task from a source that may already have drafts (customer
         2026-10-25: a past hit is written again). Earlier titles are passed as avoid_titles so
         the new draft takes another angle; earlier drafts are untouched. Not started here."""
         article_id = int(article_id)
         if not self.db.rows('SELECT id FROM articles WHERE id=?', (article_id,)):
             raise ValueError('文章不存在或已被清理')
-        titles = [row['title'] for row in self.db.rows('SELECT title,sources FROM drafts')
-                  if any(s.get('article_id') == article_id for s in json.loads(row['sources'] or '[]'))]
+        # One pending rewrite per article: repeated clicks used to queue near-identical drafts.
+        for row in self.db.rows("SELECT status FROM jobs WHERE run_key LIKE ?", (f'rewrite:{article_id}:%',)):
+            if row['status'] in ('等待中', '运行中'):
+                raise ValueError('这篇文章已经在“再写一篇”的队列里，等它完成后再写下一篇')
+        drafts = self.article_drafts(article_id)
+        # Earlier angles = title + section headings, so the writer can see the structure to avoid.
+        angles = [d['title'] + '｜小标题：' + ' / '.join(re.findall(r'(?m)^#{1,6}\s*(.+?)\s*$', d['body'] or '')[:8])
+                  for d in drafts]
         config = deepcopy(config)
         config.update(writing_mode='single_web', selection_mode='hot', min_sources=1, article_limit=1,
-                      draft_count=1, topic='', avoid_titles=titles)
+                      draft_count=1, topic=str(note or '').strip()[:300], avoid_titles=[d['title'] for d in drafts],
+                      avoid_angles=angles)
         job = self.db.job(f'rewrite:{article_id}:{uuid.uuid4().hex}', config)
         self.db.update_job(job['id'], selected=json.dumps([article_id]))
         return self.db.rows('SELECT * FROM jobs WHERE id=?', (job['id'],))[0]

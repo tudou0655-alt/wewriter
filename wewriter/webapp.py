@@ -597,13 +597,14 @@ class Api:
         return {'acct': a['account_name'], 't': a['title'], 'when': china_time(a['published_at'], '%Y-%m-%d %H:%M'),
                 'reads': reads, 'likes': likes, 'body': a['content'], 'images': images,
                 'state': article_state(used, a['content'], a['error']),
-                'error': redact(a['error'] or ''), 'meta': meta}
+                'error': redact(a['error'] or ''), 'meta': meta,
+                'drafts': [d['title'] for d in self._b.engine.article_drafts(a['id'])]}
 
     @_safe
-    def art_rewrite(self, article_id):
+    def art_rewrite(self, article_id, note=''):
         b = self._b
         b.require_live()
-        return b.start_task(None, b.engine.rewrite_job(article_id, b.db.config()))
+        return b.start_task(None, b.engine.rewrite_job(article_id, b.db.config(), note))
 
     @_safe
     def art_open(self, article_id):

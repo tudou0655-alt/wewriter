@@ -112,6 +112,13 @@ a.btn { text-decoration: none; display: inline-block; color: var(--ink); }
 .body h4 { font-size: 16px; margin: 1.4em 0 .5em; }
 .pic { background: repeating-linear-gradient(45deg, var(--ground) 0 8px, transparent 8px 16px); border: 1px dashed var(--rule); border-radius: 8px; height: 140px; max-width: 100%; display: grid; place-items: center; color: var(--ink-2); font-size: 12px; margin: 0 0 1em; }
 .alert { background: var(--cinnabar-soft); color: var(--cinnabar); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 16px; }
+.rw { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--rule); border-radius: 10px; background: var(--ground); display: grid; gap: 8px; font-size: 13px; }
+.rw[hidden] { display: none; }
+.rw label { color: var(--ink-2); }
+.rw ul { margin: 4px 0 0; padding-left: 1.3em; }
+.rw-done { color: var(--ink-2); }
+.rw textarea { width: 100%; min-height: 64px; resize: vertical; font: inherit; color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; }
+.rw-row { display: flex; gap: 8px; }
 .wait { background: var(--amber-soft); color: var(--amber); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 16px; }
 details { margin-top: 18px; border-top: 1px solid var(--rule); padding-top: 12px; }
 summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
@@ -167,6 +174,7 @@ details dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-n
   <div class="byline" id="dw-by"></div>
   <div class="figs" id="dw-figs"></div>
   <div id="dw-state"></div>
+  <div class="rw" id="dw-rw" hidden></div>
   <div class="body" id="dw-body"></div>
   <details><summary>采集详情</summary><dl id="dw-meta"></dl></details>
 </aside>

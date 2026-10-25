@@ -54,16 +54,32 @@ async function open(id) {
     : a.state === 'nobody' ? '<div class="wait">还没有读取正文。任务选中这篇文章时才会读取，以免多花采集费用。</div>'
     : a.state === 'used' ? '<div class="wait" style="background: var(--jade-soft); color: var(--jade)">这篇已经用来生成过稿件，自动任务不会再选它；如果它是爆款，可以点“再写一篇”换个角度再生成。</div>' : '';
   $('dw-rewrite').hidden = a.state === 'bad';
+  ui.drafts = a.drafts || []; $('dw-rw').hidden = true;
   $('dw-body').innerHTML = a.body ? bodyHtml(a.body, a.images) : '<p class="note">没有可显示的正文。</p>';
   $('dw-meta').innerHTML = a.meta.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
   $('drawer').hidden = false; $('drawer').scrollTop = 0; $('dw-close').focus();
 }
 $('list').addEventListener('click', e => { const b = e.target.closest('[data-open]'); if (b) open(Number(b.dataset.open)); });
 $('dw-close').addEventListener('click', () => { $('drawer').hidden = true; });
-$('dw-rewrite').addEventListener('click', async () => {
+/* 再写一篇: ask for an optional direction first, and show what was already written from this article. */
+$('dw-rewrite').addEventListener('click', () => {
   if (!ui.open) return;
-  const r = await call('art_rewrite', ui.open);
-  if (r) toast(r.queued ? `已加入队列（前面还有任务），完成后自动开始；到工作台查看` : '已开始再写一篇，到工作台查看进度');
+  const box = $('dw-rw'), done = ui.drafts || [];
+  if (!box.hidden) { box.hidden = true; return; }
+  box.innerHTML = `<b>再写一篇：换个角度写</b>
+    ${done.length ? `<div class="rw-done">这篇已写过 ${done.length} 篇，新稿会避开它们的标题和结构：<ul>${done.map(t => `<li>${esc(t)}</li>`).join('')}</ul></div>` : ''}
+    <label for="rw-note">这次想写的方向（可选）</label>
+    <textarea id="rw-note" maxlength="300" placeholder="例如：从企业准备申报材料的角度写；或：重点讲各地执行差异"></textarea>
+    <div class="rw-row"><button class="btn primary" id="rw-go">开始生成</button><button class="btn quiet" id="rw-cancel">取消</button></div>`;
+  box.hidden = false; $('rw-note').focus();
+  $('rw-cancel').addEventListener('click', () => { box.hidden = true; });
+  $('rw-go').addEventListener('click', async () => {
+    $('rw-go').disabled = true;
+    const r = await call('art_rewrite', ui.open, $('rw-note').value.trim());
+    if (!r) { $('rw-go').disabled = false; return; }
+    box.hidden = true;
+    toast(r.queued ? '已加入队列（前面还有任务），完成后自动开始；到工作台查看' : '已开始再写一篇，到工作台查看进度');
+  });
 });
 $('dw-open').addEventListener('click', async e => { e.preventDefault(); if (ui.open && await call('art_open', ui.open)) toast('已在浏览器中打开原文'); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('drawer').hidden = true; });

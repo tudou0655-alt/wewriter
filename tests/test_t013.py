@@ -240,3 +240,50 @@ class DialogFilterTest(unittest.TestCase):
             self.assertEqual(len(seen), 3)
         finally:
             f.tearDown()
+
+
+class RewriteDirectionTest(unittest.TestCase):
+    """Customer 2026-10-25: repeated 再写一篇 produced three near-identical drafts."""
+
+    def _setup(self):
+        import test_core
+        from wewriter.api import digest
+        from wewriter.engine import Engine
+        f = test_core.CoreTest(); f.setUp()
+        url = 'https://mp.weixin.qq.com/s/hit-dir'
+        aid = f.db.save_article({'source_key': digest(url), 'account_name': '号', 'title': '单项冠军', 'url': url,
+                                 'published_at': '2026-10-24T00:00:00+00:00'})
+        job = f.db.job('old', f.config)
+        f.db.save_draft(job['id'], '旧稿标题', '开头。[S1]\n\n## 申报条件\n\n内容。\n\n## 时间安排\n\n内容。',
+                        [{'source_id': 'S1', 'article_id': aid}], '# 报告')
+        return f, aid, Engine(f.db, test_core.FakeVault())
+
+    def test_note_and_previous_structure_reach_the_writer_config(self):
+        f, aid, engine = self._setup()
+        try:
+            stored = json.loads(engine.rewrite_job(aid, f.config, '从材料准备角度写')['config'])
+            self.assertEqual(stored['topic'], '从材料准备角度写')
+            self.assertEqual(stored['avoid_titles'], ['旧稿标题'])
+            self.assertEqual(stored['avoid_angles'], ['旧稿标题｜小标题：申报条件 / 时间安排'])
+        finally:
+            f.tearDown()
+
+    def test_second_rewrite_of_the_same_article_is_refused_while_one_is_pending(self):
+        f, aid, engine = self._setup()
+        try:
+            engine.rewrite_job(aid, f.config)
+            with self.assertRaises(ValueError):
+                engine.rewrite_job(aid, f.config)
+        finally:
+            f.tearDown()
+
+    def test_writer_is_told_to_change_angle_only_when_earlier_drafts_exist(self):
+        model, transport = BriefTest.model(self, {'title': '新', 'outline': ['a'], 'body': '原文。[S1] 通知。[W1]', 'review_notes': []})
+        model.write(SOURCES, dict(CONFIG, avoid_angles=['旧稿｜小标题：a / b'], topic='换个角度'))
+        system = transport.payloads[0]['messages'][0]['content']
+        user = json.loads(transport.payloads[0]['messages'][1]['content'])
+        self.assertIn('必须换一个明显不同的切入角度', system)
+        self.assertEqual(user['avoid_angles'], ['旧稿｜小标题：a / b'])
+        model2, transport2 = BriefTest.model(self, {'title': '新', 'outline': ['a'], 'body': '原文。[S1] 通知。[W1]', 'review_notes': []})
+        model2.write(SOURCES, CONFIG)
+        self.assertNotIn('必须换一个明显不同的切入角度', transport2.payloads[0]['messages'][0]['content'])

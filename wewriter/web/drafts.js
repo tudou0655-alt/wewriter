@@ -30,12 +30,25 @@ $('next').addEventListener('click', () => { ui.page++; loadList(); });
 $('list').addEventListener('click', e => { const b = e.target.closest('[data-open]'); if (b) openDraft(Number(b.dataset.open)); });
 
 /* ---- Manuscript ---- */
+// Small Markdown subset the writer uses: headings, quotes, **bold**, lists and pipe tables.
+function inline(text) {
+  return esc(text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/\[(S|W)(\d+)\]/g, '<span class="cite" title="来源 $1$2，导出发布稿时会去掉">$1$2</span>');
+}
 function prose(md) {
-  return String(md || '').split(/\n{2,}/).map(block => {
-    const html = esc(block.trim()).replace(/\[(S|W)(\d+)\]/g, '<span class="cite" title="来源 $1$2，导出发布稿时会去掉">$1$2</span>').replace(/\n/g, '<br>');
-    if (/^#{1,6}\s/.test(block.trim())) return `<h3>${html.replace(/^#{1,6}\s*/, '')}</h3>`;
-    if (block.trim().startsWith('&gt;') || block.trim().startsWith('>')) return `<blockquote>${html.replace(/^&gt;\s*/, '')}</blockquote>`;
-    return `<p>${html}</p>`;
+  return String(md || '').split(/\n{2,}/).map(raw => {
+    const block = raw.trim(), lines = block.split('\n').map(l => l.trim());
+    if (/^#{1,6}\s/.test(block)) return `<h3>${inline(block.replace(/^#{1,6}\s*/, ''))}</h3>`;
+    if (block.startsWith('>')) return `<blockquote>${lines.map(l => inline(l.replace(/^>\s?/, ''))).join('<br>')}</blockquote>`;
+    if (lines.length > 1 && lines.every(l => l.startsWith('|'))) {
+      const cells = l => l.replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+      const rows = lines.filter(l => !/^\|[\s:|-]+\|$/.test(l)).map(cells);
+      return `<table><thead><tr>${rows[0].map(c => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${
+        rows.slice(1).map(r => `<tr>${r.map(c => `<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    }
+    if (lines.every(l => /^\d+[.、]\s/.test(l))) return `<ol>${lines.map(l => `<li>${inline(l.replace(/^\d+[.、]\s*/, ''))}</li>`).join('')}</ol>`;
+    if (lines.every(l => /^[-*]\s/.test(l))) return `<ul>${lines.map(l => `<li>${inline(l.replace(/^[-*]\s*/, ''))}</li>`).join('')}</ul>`;
+    return `<p>${lines.map(inline).join('<br>')}</p>`;
   }).join('');
 }
 async function openDraft(id) {

@@ -46,7 +46,7 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .nav small { font-size: 11px; color: var(--ink-2); font-weight: 400; }
 .rail .foot { margin-top: auto; padding-left: 10px; color: var(--ink-2); font-size: 12px; }
 main { padding-block: 28px 48px; padding-inline: clamp(16px, 3vw, 48px); min-width: 0; }
-.wrap { max-width: 1320px; margin-inline: auto; display: grid; gap: 16px; }
+.wrap { max-width: 1560px; margin-inline: auto; display: grid; gap: 16px; }
 .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacing: .02em; }
 .sample { font-size: 12px; color: var(--amber); background: var(--amber-soft); padding: 2px 8px; border-radius: 999px; }
@@ -92,12 +92,18 @@ h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacin
 .pill.wait { background: var(--cinnabar-soft); color: var(--cinnabar); }
 .pill.fix { background: var(--amber-soft); color: var(--amber); }
 .pill.ok { background: var(--jade-soft); color: var(--jade); }
-.sheet { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius); padding: 34px 44px 26px; min-width: 0; }
+.sheet { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius); padding: 34px clamp(20px, 3.5vw, 64px) 26px; min-width: 0; }
 .sheet h2 { font-family: var(--font-display); font-size: 26px; line-height: 1.4; margin: 0 0 8px; text-wrap: balance; }
 .byline { color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; display: flex; gap: 14px; flex-wrap: wrap; }
 .warnline { margin-top: 14px; background: var(--amber-soft); color: var(--amber); border-radius: 8px; padding: 9px 12px; font-size: 13px; }
 .okline { margin-top: 14px; background: var(--jade-soft); color: var(--jade); border-radius: 8px; padding: 9px 12px; font-size: 13px; }
-.prose { margin-top: 22px; font-size: 15.5px; line-height: 1.95; max-width: 38em; }
+/* Reading width grows with the window (about 38em on a laptop, up to 64em full screen). */
+.prose { margin-top: 22px; font-size: clamp(15.5px, 9px + .45vw, 17.5px); line-height: 1.95; max-width: min(100%, 64em); }
+.prose ul, .prose ol { margin: 0 0 1.1em; padding-left: 1.6em; }
+.prose li { margin: .25em 0; }
+.prose table { border-collapse: collapse; margin: 0 0 1.2em; width: 100%; font-size: .92em; line-height: 1.6; }
+.prose th, .prose td { border: 1px solid var(--rule); padding: 6px 10px; text-align: left; vertical-align: top; }
+.prose th { background: var(--ground); font-weight: 600; }
 .prose p { margin: 0 0 1.1em; }
 .prose h3 { font-family: var(--font-display); font-size: 18px; margin: 1.6em 0 .6em; }
 .prose blockquote { margin: 0 0 1.1em; padding: 2px 0 2px 14px; border-left: 3px solid var(--rule); color: var(--ink-2); }

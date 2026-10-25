@@ -99,6 +99,8 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 .cbox-row { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: var(--ink); color: var(--sheet); padding: 8px 16px; border-radius: 8px; font-size: 13px; z-index: 60; max-width: calc(100% - 32px); }
 .loading { color: var(--ink-2); font-size: 13px; padding: 18px 0; }
+/* The sidebar stays put while the page scrolls (wide windows; narrow ones use the top bar). */
+@media (min-width: 761px) { .rail { position: sticky; top: 0; height: 100vh; overflow-y: auto; align-self: start; } }
 /* The side tab closes drawers; the old text button stays only as the tab's click target. */
 #dw-close { display: none !important; }
 .rail .theme-box { margin-top: auto; display: grid; gap: 6px; padding: 0 2px; }

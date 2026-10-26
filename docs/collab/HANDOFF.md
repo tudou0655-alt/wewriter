@@ -1,5 +1,17 @@
 # Current handoff — T-008 文章质量（Claude → Codex 只读审查）
 
+## T-015 招聘者入口、架构图、免 Key Demo 与 CI（Codex，2026-10-26，done）
+
+人工提出公开仓库求职展示优化。README 顶部已改为“可恢复、可追溯的多阶段 AI 内容工作流”，不自称多智能体；一屏内说明问题、可核验成果、Mermaid 架构和 3 个技术难点。原客户使用、失败恢复、安全、开发和版本说明放入“详细文档”折叠区。首部增加仅处理授权账号/素材、遵守平台规则、人工审核和 Demo 使用虚构/脱敏数据的边界。没有准确耗时、成本或质量指标时明确不编造。保留 T-014 新增的智能应用控制和“复制全文”说明。
+
+新增 `.github/workflows/test.yml`：push 与 pull_request 均在 `windows-latest` / Python 3.13 安装 `requirements.txt` 并执行 `python -m unittest discover -s tests -v`；只授予 contents:read，20 分钟超时，同一分支新运行会取消旧运行。README 已放 Tests 徽章；工作流尚未提交推送，因此徽章需推送且首次 Action 通过后才会变绿。
+
+新增 `docs/showcase/wewriter-demo.gif`：10 帧、每帧 6 秒、总计 60 秒、约 646 KiB，展示工作台、采集漏斗、来源文章、来源追溯、稿件审核、二审/人工修改/复制导出、设置和失败恢复。素材均为仓库现有脱敏截图，不调用 API、无 Key；`scripts/build_demo_gif.py` 可重复生成。GIF 首帧及 10 帧联系表已人工查看，无裁切；README 相对链接均存在。
+
+验证：Python 3.13.15；全量 `python -m unittest discover -s tests -v` 实际 294 项通过（45.461 秒）；`scripts/verify_delivery.py` 6 项通过；`git diff --check` 通过；工作流包含要求的 runner 和命令。全局 Git email 已按人工给出的方案设置为 `tudou0655-alt@users.noreply.github.com`，只影响未来提交，历史提交未在本任务改写。未发布 Release/Bilibili，也未修改 GitHub 网页隐私设置。
+
+`engine.py` 拆分未开始：T-013 仍由 Claude 占用该文件，AGENTS.md 禁止两个 AI 并发编辑同一文件。已登记 T-016，等待 T-013 done 并提交后再拆 `pipeline/collect.py`、`materials.py`、`research.py`、`composition.py`，Engine 保持编排与兼容入口。下一步人工/Codex 先审查当前 README 和 GIF；批准提交推送后观察首个 GitHub Actions 结果，再决定视频是否另发 Bilibili/Release。
+
 > **2026-10-25 历史已改写（人工授权）：** 为公开仓库去掉客户信息，main 的全部提交被重写并强制推送（新 HEAD 693a030）：客户公众号名称替换为“示例公众号A–E”，删除 EveryInfra 接口说明文件、旧截图、第二篇示例稿。旧提交号全部失效；基于旧提交的分支或工作区请以 `origin/main` 为准重新同步。改写前完整备份：`.local-data/repo-backup/before-rewrite-*.bundle`（本地，未上传）。
 
 ## T-012 设置页一键清除后台数据（Codex，2026-10-25 中国时间，review）
@@ -841,3 +853,15 @@ git status --short
 - Completed: extracted original embedded portrait without alteration and added it to the English resume header. Updated output/pdf/Bo_Peng_AI_Agent_LLM_Intern_Resume_EN.pdf and tmp/pdfs/build_resume.py; no prose changes.
 - Validation: generation reported 1 page / 603 words; pdftoppm preview visually inspected with portrait present and no clipping/overlap. No application tests run (document layout only). Existing source changes preserved.
 - Remaining risks unchanged: human should confirm name, official English titles and availability. Next owner/action: human review and use the updated PDF.
+
+## T-014 - 2026-10-26 - Claude
+
+- 人工需求：稿件库不导出也能直接复制稿件文本；客户在 Windows 11 运行 `D:\微信插件\WeWriter.exe` 被“智能应用控制”拦截（无法确认编写人）。
+- 复制：稿件列表每行和稿件页新增“复制全文”。`Api.dr_copy` 复用 `export_document` 生成干净发布稿（无 [S1]/[W1]），`ui.clipboard_text` 同时生成纯文本和 HTML，`windows.copy_to_clipboard` 写入 CF_UNICODETEXT + "HTML Format"（粘贴到公众号编辑器/Word 保留标题、加粗、列表、表格）；Windows 剪贴板被占用时页面回退 `navigator.clipboard.writeText`。已清理稿件拒绝复制。
+- 拦截：原因是 EXE 及其运行时解压的 .pyd/DLL 均未签名且无微软信誉；SAC 无“仍要运行”、无单程序白名单。详见 `docs/代码签名与智能应用控制.md`（方案对比、构建步骤、客户临时说明）。
+- 构建：`WeWriter.spec` 关闭 UPX、加入版本信息（`WEWRITER_PUBLISHER`），`WEWRITER_SIGN=1` 时打包前签名未签名的内置二进制；`build.ps1 -Sign` 签 EXE（普通 PowerShell 源文件不交给 signtool），未签名时输出警告；新增 `scripts/sign.ps1`（Trusted Signing 或证书指纹，均由环境变量配置，仓库无密钥）；`build_to_desktop.cmd` 检测到签名变量自动 `-Sign`。
+- Codex 复审修正：模型生成的 Markdown 链接在进入剪贴板 HTML 属性前转义引号；Windows 全局内存锁失败时释放内存；`signtool` 不支持普通 `.ps1`，因此签名目标改为程序内 DLL/PYD 与最终 EXE，避免 `build.ps1 -Sign` 必然失败；测试临时库固定到仓库忽略目录。
+- Windows 验证：`tests.test_copy` 7 项通过；全量 unittest 294 项通过；`drafts.js` 语法、PowerShell 脚本解析、`git diff --check` 和离线交付检查通过；无证书的完整 PyInstaller 构建与包校验通过，EXE 成功写入版本信息。
+- 未验证：真实剪贴板粘贴到公众号编辑器；没有证书，真实签名流程尚未跑过。不加 `-Sign` 时构建行为除 UPX 关闭和版本信息外不变（EXE 可能略大）。
+- 需人工决定：采购签名证书（中国大陆主体大概率不符合 Azure Trusted Signing 资格，建议 OV 证书）；是否把客户临时说明发给客户。
+- 下一步：人工在 Windows 上运行全量测试并试用“复制全文”；Codex 下次打包（BUILD-002）请注意 spec/build.ps1 已改。

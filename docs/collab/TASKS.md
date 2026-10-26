@@ -4,6 +4,9 @@ Allowed status: `todo`, `in-progress — Codex`, `in-progress — Claude`, `revi
 
 | ID | Status | Owner | Scope/files | Acceptance check | Depends on |
 |---|---|---|---|---|---|
+| T-016 | todo | Codex | `engine.py` 第一阶段模块化：`pipeline/collect.py`、`materials.py`、`research.py`、`composition.py`，Engine 保留编排和兼容入口 | 行为不变、导入边界清晰、缓存/恢复/批处理全量回归 | 等 T-013 done 并提交，避免并发覆盖 `engine.py` |
+| T-015 | done | Codex | 招聘者版 README、Mermaid 架构图、免 Key Demo GIF、GitHub Actions；`README.md`、`.github/workflows/test.yml`、`docs/showcase/`、`scripts/build_demo_gif.py`、协作文档 | 顶部 30 秒可理解；长文折叠；CI 在 push/PR 跑全量 unittest；Demo 不含真实客户数据；链接与测试通过 | `engine.py` 拆分转 T-016，等待 T-013 结束 |
+| T-014 | done | Claude | 人工 2026-10-26：稿件库“复制全文”（不导出文件直接复制）；客户 Windows 11 智能应用控制拦截的原因分析与签名准备。编辑：`wewriter/ui.py`（clipboard_text）、`wewriter/windows.py`（剪贴板）、`wewriter/webapp.py`（dr_copy）、`wewriter/web/drafts.*`、`tests/test_copy.py`、`WeWriter.spec`（关 UPX、版本信息、可选内置二进制签名）、`scripts/build.ps1`（-Sign）、`scripts/build_to_desktop.cmd`、新 `scripts/sign.ps1`、`docs/代码签名与智能应用控制.md`、`README.md`（两句说明）、协作文档 | Windows 全量 294 项通过；无证书构建及包校验通过；真实签名与真实剪贴板粘贴仍需环境验收 | 与 BUILD-002 相邻：改了构建脚本，Codex 已审查并修正签名目标 |
 | T-013 | in-progress — Claude | Claude | 按客户 2026-10-25 文章质量需求调整写作：读者（企业中高层/申报决策者）、目标（快速了解变化+可操作建议+与补贴直接相关的变化）、与参考文章关系（补充新信息并深化优先，其次同主题重组）、风格（专业但好懂、标题开头直白、历年数据对比）。可编辑：`wewriter/api.py`（写作/二审提示）、`wewriter/research.py`（检索重点）、`wewriter/ui.py`/`wewriter/web/settings.js`（风格预设）、`wewriter/config.py`（默认风格与迁移）、`tests/test_t013.py`、协作文档；追加：已用爆款“再写一篇”（`engine.rewrite_job`、`webapp.art_rewrite`、`web/articles.*`） | 离线测试：要求进入写作、二审、联网检索提示；默认风格迁移；全量测试。真实模型对比需用户授权 | 与 BUILD-002 并行：Codex 打包时源码可能含本任务改动 |
 | BUILD-002 | in-progress — Codex | Codex | 人工授权打包当前源码；构建产物及协作文档 | 包检查、构建清单和校验值 | T-011/T-012 源码 |
 | T-012 | review | Codex | 设置页一键清除后台数据；db.py、webapp.py、settings.html/js、专项测试 | 确认、自动备份、运行互斥、保留公众号/密钥/设置、清理校验 | 保留已有改动 |

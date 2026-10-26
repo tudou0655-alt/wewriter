@@ -4,7 +4,7 @@
 
 人工提出公开仓库求职展示优化。README 顶部已改为“可恢复、可追溯的多阶段 AI 内容工作流”，不自称多智能体；一屏内说明问题、可核验成果、Mermaid 架构和 3 个技术难点。原客户使用、失败恢复、安全、开发和版本说明放入“详细文档”折叠区。首部增加仅处理授权账号/素材、遵守平台规则、人工审核和 Demo 使用虚构/脱敏数据的边界。没有准确耗时、成本或质量指标时明确不编造。保留 T-014 新增的智能应用控制和“复制全文”说明。
 
-新增 `.github/workflows/test.yml`：push 与 pull_request 均在 `windows-latest` / Python 3.13 安装 `requirements.txt` 并执行 `python -m unittest discover -s tests -v`；只授予 contents:read，20 分钟超时，同一分支新运行会取消旧运行。README 已放 Tests 徽章；工作流尚未提交推送，因此徽章需推送且首次 Action 通过后才会变绿。
+新增 `.github/workflows/test.yml`：push 与 pull_request 均在 `windows-latest` / Python 3.13 安装 `requirements-lock.txt` 并执行 `python -m unittest discover -s tests -v`；只授予 contents:read，20 分钟超时，同一分支新运行会取消旧运行。首次推送运行的 294 项测试中，程序行为测试均通过，但交付检查发现 CI 使用 `requirements.txt` 安装后有 3 个传递依赖漂移；已改为安装项目现有的严格锁定清单，确保 CI 与交付检查使用同一依赖基线。README 已放 Tests 徽章。
 
 新增 `docs/showcase/wewriter-demo.gif`：10 帧、每帧 6 秒、总计 60 秒、约 646 KiB，展示工作台、采集漏斗、来源文章、来源追溯、稿件审核、二审/人工修改/复制导出、设置和失败恢复。素材均为仓库现有脱敏截图，不调用 API、无 Key；`scripts/build_demo_gif.py` 可重复生成。GIF 首帧及 10 帧联系表已人工查看，无裁切；README 相对链接均存在。
 

@@ -865,3 +865,19 @@ git status --short
 - 未验证：真实剪贴板粘贴到公众号编辑器；没有证书，真实签名流程尚未跑过。不加 `-Sign` 时构建行为除 UPX 关闭和版本信息外不变（EXE 可能略大）。
 - 需人工决定：采购签名证书（中国大陆主体大概率不符合 Azure Trusted Signing 资格，建议 OV 证书）；是否把客户临时说明发给客户。
 - 下一步：人工在 Windows 上运行全量测试并试用“复制全文”；Codex 下次打包（BUILD-002）请注意 spec/build.ps1 已改。
+
+## T-016 - 2026-10-26 - Claude（engine.py 模块化，请 Codex 只读审查）
+
+- 人工决定由 Claude 执行。纯搬迁，不改业务逻辑、不改测试、不碰 T-017 文件（ui.py、webapp.py、web/drafts.*、tests/test_review_marks.py）。拆分前工作区 engine.py 与 HEAD（含 T-013 的 74c5ccd）一致。
+- 模块划分（`wewriter/pipeline/`）：
+  - `common.py`（66 行，新增的共享层，避免 pipeline 反向导入 engine 造成循环）：`ErrorCode`、`TaskError`、`error_code`、`CHINA_TZ`、`china_time`、`metric_status`、`_published_at`。
+  - `collect.py`（457 行）：`COLLECT_KEYS`、`MATERIAL_KEYS`、`FUNNEL_LABELS`、`METRIC_SOURCES`、`COVERAGE_ENDS`、`window_start`、`Funnel`、`load_funnel`、`format_funnel`、`format_coverage`、`format_quality`、`open_source`、`collect`、`coverage`、`save_metrics`、`used_articles`。
+  - `materials.py`（150 行）：`materials`、`article_text`、`read_images`、`summaries`、`summary_attempts`。
+  - `research.py`（58 行）：`RESEARCH_DEGRADED_MARK`、`comments`、`research`。不导入 `wewriter.research`；联网检索客户端仍经 `engine.research_factory`（默认 `wewriter.research.WebResearch`，在 Engine.__init__ 中解析）。
+  - `composition.py`（166 行）：`style`、`compose`、`write_one`、`report`、`metrics_line`、`article_drafts`、`rewrite_job`。
+- `engine.py`（1229 → 454 行）保留：`_Run`、`FINISHED`、`Engine`（`run`、`stop`、`check`、`new_collection`、批处理 `run_separate`/`_run_child`/`_batch_queue`/`_batch_summary`/`_fold_children`/`refresh_parent`）。
+- 兼容性：Engine 的全部原方法名与签名保留（含 `_collect`、`_materials`、`_summaries`、`_summary_attempts`、`_research`、`_compose`、`_report`、`_metrics_line` 等私有方法），均为一行委托。阶段函数第一个参数是 Engine，阶段之间互相调用一律经 `engine._xxx(...)`，所以对 Engine 方法打补丁仍生效。engine 模块重新导出所有搬走的名字以及原有的 api/hotspots 导入（`EveryInfra`、`Dajiala`、`Transport`、`Model`、`digest`、`parse_date`、`wechat_url`、`count`、`rank`），`patch('wewriter.engine.EveryInfra.comments')` 等原写法照常工作。已知边界：若今后对 `wewriter.engine.<模块级函数>` 本身打补丁（如 `patch('wewriter.engine.digest')`），不会影响 pipeline 内的调用，需改为补丁 `wewriter.pipeline.<模块>.<名字>`；当前测试无此用法。
+- 打包：pipeline 由 engine 静态导入，PyInstaller 自动收集，`WeWriter.spec` 无需改 hiddenimports，未修改。
+- 验证（Windows，本机 .venv，Python 3.13）：拆分前基线 `python -m unittest discover -s tests` 299 项 OK（40.2 秒）；拆分后 299 项 OK（30.9 秒）；`python -c "import wewriter.engine, wewriter.ui, wewriter.webapp"` 通过；用 AST 比对原 engine.py 中每个模块级定义与搬迁后的定义完全一致，方法体除 `self`→`engine`、`self.db`→`db`/`engine.db`、相对导入层级外无差异；`scripts/verify_delivery.py` 6 项通过；`git diff --check` 通过。未提交、未推送、未打包。
+- 请 Codex 只读审查：模块边界是否合适（尤其 `common.py` 这一额外模块、`open_source` 放在 collect、批处理留在 engine）、兼容导出是否齐全。
+- 2026-10-26：人工告知 Codex 审查完成并授权提交；Codex 审查结论未写入文档，T-016 保持 review，待 Codex 补记结论后再改 done；仅提交 T-016 相关文件与协作文档的 T-016 部分，T-017 改动仍未提交。

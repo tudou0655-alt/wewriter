@@ -23,9 +23,9 @@ from .config import due_key, validate
 from .db import Database
 from .engine import Engine, format_coverage, load_funnel, window_start
 from .logs import logger, redact
-from .ui import (EXPORT_FORMATS, MODEL_OPTIONS, PHASES, RETRYABLE, STYLE_PRESETS, china_time, compose_style,
-                 draft_hint, job_status_label, phase_index, version_text, write_export, write_report)
-from .windows import set_startup, startup_enabled
+from .ui import (EXPORT_FORMATS, MODEL_OPTIONS, PHASES, RETRYABLE, STYLE_PRESETS, china_time, clipboard_text,
+                 compose_style, draft_hint, job_status_label, phase_index, version_text, write_export, write_report)
+from .windows import copy_to_clipboard, set_startup, startup_enabled
 
 CHINA = timezone(timedelta(hours=8))
 WEB_DIR = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent.parent)) / 'wewriter' / 'web'
@@ -678,6 +678,20 @@ class Api:
     def dr_status(self, draft_id, state, note):
         self._b.db.set_draft_status(int(draft_id), str(state), str(note or ''))
         return {}
+
+    @_safe
+    def dr_copy(self, draft_id):
+        """Clean publication copy straight to the clipboard, no file needed."""
+        d = self._b.db.rows('SELECT title,body,sources FROM drafts WHERE id=? AND cleared=0', (int(draft_id),))
+        if not d:
+            raise ValueError('稿件不存在或已清理')
+        try:
+            sources = json.loads(d[0]['sources'])
+        except ValueError:
+            sources = []
+        text, html = clipboard_text(d[0]['title'], d[0]['body'], sources)
+        # 'text' lets the page fall back to the browser clipboard when Windows refuses.
+        return {'copied': copy_to_clipboard(text, html), 'text': text, 'chars': len(re.sub(r'\s', '', text))}
 
     @_safe
     def dr_export(self, draft_id, kind, fmt):

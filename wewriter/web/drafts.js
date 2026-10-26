@@ -1,4 +1,4 @@
-// 稿件库: list, manuscript view, editing with a leave guard, review decisions, export.
+// 稿件库: list, manuscript view, editing with a leave guard, review decisions, copy and export.
 buildNav('drafts');
 const TABS = ['全部', '待审核', '需修改', '已通过'];
 const ui = { q: '', tab: '全部', page: 0, open: null, editing: false, dirty: false, panel: null, fmt: 'docx' };
@@ -16,7 +16,7 @@ async function loadList() {
   $('total').textContent = `共 ${r.total} 篇`;
   $('list').innerHTML = r.rows.length ? r.rows.map(d => `<li><div><div class="t">${esc(d.t)}</div>
       <div class="m"><span class="${textCls(d.s)}">${d.s}</span><span>${d.when}（中国时间）</span>${d.flag ? `<span class="flag">${esc(d.flag)}</span>` : ''}</div></div>
-      <button class="btn" data-open="${d.id}">查看稿件</button></li>`).join('')
+      <div class="acts"><button class="btn quiet" data-copy="${d.id}" data-state="${d.s}">复制全文</button><button class="btn" data-open="${d.id}">查看稿件</button></div></li>`).join('')
     : `<li class="empty">${ui.q ? '没有找到包含这个关键词的稿件。' : ui.tab === '全部' ? '这里还没有稿件。在工作台开始一个任务后，生成的稿件会出现在这里。' : `没有“${ui.tab}”的稿件。`}</li>`;
   $('pager').hidden = pages <= 1;
   $('pageinfo').textContent = `第 ${ui.page + 1}/${pages} 页 · 每页 ${r.per} 篇`;
@@ -27,7 +27,21 @@ $('q').addEventListener('input', e => { clearTimeout(searchTimer); searchTimer =
 $('tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) { ui.tab = b.dataset.tab; ui.page = 0; loadList(); } });
 $('prev').addEventListener('click', () => { ui.page--; loadList(); });
 $('next').addEventListener('click', () => { ui.page++; loadList(); });
-$('list').addEventListener('click', e => { const b = e.target.closest('[data-open]'); if (b) openDraft(Number(b.dataset.open)); });
+$('list').addEventListener('click', e => {
+  const b = e.target.closest('[data-open]'); if (b) openDraft(Number(b.dataset.open));
+  const c = e.target.closest('[data-copy]'); if (c) copyDraft(Number(c.dataset.copy), c.dataset.state);
+});
+
+/* ---- Copy ---- */
+// Same clean text as “导出发布稿” (no [S1] marks), straight to the clipboard; keeps headings when pasted into the WeChat editor.
+async function copyDraft(id, state) {
+  const r = await call('dr_copy', id);
+  if (!r) return;
+  let ok = r.copied;
+  if (!ok) try { await navigator.clipboard.writeText(r.text); ok = true; } catch (_) {}
+  toast(!ok ? '复制失败：剪贴板正被其他程序占用，请稍后再试，或使用“导出”'
+    : `已复制全文，约 ${r.chars} 字，可直接粘贴到公众号编辑器${state === '已通过' ? '' : '（这篇还没审核通过）'}`);
+}
 
 /* ---- Manuscript ---- */
 // Small Markdown subset the writer uses: headings, quotes, **bold**, lists and pipe tables.
@@ -99,6 +113,7 @@ function renderDraft() {
       <button class="btn" id="edit">编辑</button><span class="grow"></span>
       <button class="btn warn" id="fix" ${st === '需修改' ? 'disabled' : ''}>标记需修改</button>
       <button class="btn primary" id="pass" ${st === '已通过' ? 'disabled' : ''}>审核通过</button>
+      <button class="btn" id="copy">复制全文</button>
       <button class="btn" id="exp">导出</button>
     </div>
     <div id="inline"></div>
@@ -112,6 +127,7 @@ function renderDraft() {
   $('edit').addEventListener('click', () => { ui.editing = true; renderDraft(); });
   $('fix').addEventListener('click', () => { ui.panel = 'fix'; renderInline(); });
   $('pass').addEventListener('click', () => { ui.panel = 'pass'; renderInline(); });
+  $('copy').addEventListener('click', () => copyDraft(d.id, st));
   $('exp').addEventListener('click', () => { ui.panel = ui.panel === 'exp' ? null : 'exp'; renderInline(); });
   renderInline();
 }

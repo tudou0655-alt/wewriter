@@ -211,6 +211,55 @@ def source_website_text(body, sources):
     return exported.split(marker, 1)[1].strip() if marker in exported else '当前正文没有可显示的参考网站。'
 
 
+def clipboard_text(title, body, sources):
+    """Clean copy for the clipboard, built from the same export so [S1]/[W1] marks never leave.
+
+    Returns (plain, html): plain text for any editor, and HTML that keeps headings, lists, bold and
+    tables when pasted into the WeChat editor or Word.
+    """
+    import html as _html
+
+    def rich(text):
+        # Escape quotes too: Markdown URLs are model-controlled text and later become href attributes.
+        text = _html.escape(text, quote=True)
+        text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+        return re.sub(r'\[([^\]]+)\]\((https?://[^)\s]+)\)', lambda m: f'<a href="{m.group(2)}">{m.group(1)}</a>', text)
+
+    plain, rich_blocks = [], []
+    for block in re.split(r'\n{2,}', export_document(title, body, sources, markdown=True).strip()):
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if not lines:
+            continue
+        heading = re.match(r'^(#{1,6})\s+(.*)$', lines[0])
+        if heading and len(lines) == 1:
+            level = min(len(heading.group(1)), 3)
+            plain.append(_plain_inline(heading.group(2)))
+            rich_blocks.append(f'<h{level}>{rich(heading.group(2))}</h{level}>')
+        elif all(line.startswith('>') for line in lines):
+            quoted = [re.sub(r'^>\s?', '', line) for line in lines]
+            plain.append('\n'.join(_plain_inline(line) for line in quoted))
+            rich_blocks.append('<blockquote>' + '<br>'.join(rich(line) for line in quoted) + '</blockquote>')
+        elif len(lines) > 1 and all(line.startswith('|') for line in lines):
+            rows = [[cell.strip() for cell in line.strip('|').split('|')] for line in lines
+                    if not re.fullmatch(r'\|[\s:|-]+\|', line)]
+            plain.append('\n'.join('\t'.join(_plain_inline(cell) for cell in row) for row in rows))
+            cells = lambda row, tag: ''.join(f'<{tag} style="border:1px solid #ccc;padding:4px 8px">{rich(c)}</{tag}>' for c in row)
+            rich_blocks.append('<table style="border-collapse:collapse"><thead><tr>' + cells(rows[0], 'th') + '</tr></thead><tbody>'
+                               + ''.join('<tr>' + cells(row, 'td') + '</tr>' for row in rows[1:]) + '</tbody></table>')
+        elif all(re.match(r'^[-*]\s+', line) for line in lines):
+            items = [re.sub(r'^[-*]\s+', '', line) for line in lines]
+            plain.append('\n'.join('- ' + _plain_inline(item) for item in items))
+            rich_blocks.append('<ul>' + ''.join(f'<li>{rich(item)}</li>' for item in items) + '</ul>')
+        elif all(re.match(r'^\d+[.、]\s*', line) for line in lines):
+            items = [re.sub(r'^\d+[.、]\s*', '', line) for line in lines]
+            plain.append('\n'.join(f'{i}. {_plain_inline(item)}' for i, item in enumerate(items, 1)))
+            rich_blocks.append('<ol>' + ''.join(f'<li>{rich(item)}</li>' for item in items) + '</ol>')
+        else:
+            plain.append('\n'.join(_plain_inline(re.sub(r'^#{1,6}\s+', '', line)) for line in lines))
+            rich_blocks.append('<p>' + '<br>'.join(rich(re.sub(r'^#{1,6}\s+', '', line)) for line in lines) + '</p>')
+    return '\n\n'.join(plain) + '\n', '\n'.join(rich_blocks)
+
+
 def _plain_inline(text):
     text = re.sub(r'\[([^\]]+)\]\((https?://[^)\s]+)\)', r'\1：\2', text)
     return re.sub(r'(\*\*|__|`)', '', text)

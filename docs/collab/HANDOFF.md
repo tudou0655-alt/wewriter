@@ -1,5 +1,23 @@
 # Current handoff — T-008 文章质量（Claude → Codex 只读审查）
 
+## T-059 公开演示素材与新版程序同步（Codex，2026-10-29，进行中）
+
+- 人工要求把新版程序和演示素材推送 GitHub，移除旧演示图片；随后明确要求隐藏真实公众号、文章和稿件名称，并最终选择 GIF。旧 REQUIREMENTS/PLAN 顶部 T-007 的禁止提交/推送条款与本轮明确授权冲突，已向人工说明，按本轮要求执行。
+- 本轮先保留桌面原视频，不上传。重写 `scripts/build_demo_gif.py`，只用 `main.demo_data` 内置的虚构公众号、文章、稿件名称绘制 24 秒功能示意；在 GIF 和 README 明确标注不是真实运行录屏。原早期界面截图已从当前目录移除，原真实任务的公开稿件样例改为虚构样例。
+- 已复核六帧联系图：均为虚构名称；GIF 6 帧、1200×720、24 秒、263494 字节。离线交付检查 6/6 通过，脚本编译与 `git diff --check` 通过。尚待生成干净构建、包内容校验和 GitHub 推送。
+
+## T-058 直接运行 EXE 路径（Codex，2026-10-28，done）
+
+- 人工要求给出可运行的 EXE 文件地址。从既有最新版 `dist/T054/WeWriter-v0.10.4-Windows.zip` 单独提取 `WeWriter.exe` 至 `dist/T054/WeWriter.exe`，未覆盖原 ZIP 或 `dist/T057-simple-10a710f` 历史包。EXE 77,653,990 字节，SHA-256 `1EDA38FED25651981E5064BED41DDAA0CE32E563E07B0FB8631267D5F3205BFB`。
+- 以 `--demo --data-dir ... --smoke-test ...` 启动提取出的 EXE，进程退出码 0，结果文件 `ok=true`，检查六页：概览、公众号管理、文章资料库、稿件工作台、运行记录、设置。未调用真实接口、读取真实 Key 或触及正式数据库。EXE 未签名；真实交互和客户环境使用需人工验收。本轮未改程序代码、提交或推送。
+
+## T-057 GitHub 历史简约版独立打包（Codex，2026-10-28，done）
+
+- 人工要求确认 GitHub 上的简约版前端仍在，并单独打包到 `dist/`。旧 REQUIREMENTS/PLAN 顶部 T-007 禁止打包与本轮明确人工要求冲突，已在编辑前告知人工，按本轮要求执行。`origin/main` 历史提交 `10a710f5b638e9f63d747f4c847ae958148e2ef2` 的 `wewriter/web/workbench.html` 有“当前任务”简约布局，不含新提交 `3fa0081` 加入的小猫图和金币资源；源版本号为 0.10.4。
+- 在项目忽略的 `tmp/` 下建立该历史提交的独立完整源码副本；未修改当前 main 的程序。用现有 Python 3.13.15 虚拟环境构建，未安装依赖。构建清单显示 `0.10.4+g10a710f`、`dirty=false`；离线交付检查 6/6 通过；PyInstaller 6.22.3 构建退出码 0；包内恰有 `WeWriter.exe`、`install.ps1`、`README.md`、`build-info.json`，`verify_delivery.py --check-package` 通过。
+- ZIP：`dist/T057-simple-10a710f/WeWriter-v0.10.4-Windows.zip`，69,065,364 字节，SHA-256 `F9D7ED05790AE6FC78E64A6FF10CBAF980BB3772C28DD668E9187B638178F5A4`。打包后的 EXE 以 `--demo --smoke-test` 隐藏窗口启动，退出码 0、结果文件 `ok=true`，六页为概览、公众号管理、文章资料库、稿件工作台、运行记录、设置。未调用真实 API 或访问凭据；未做客户环境交互/真实采集验收，也未签名。
+- 现有 `dist/T054` 最新包哈希复核仍为 `A8C8D7A15AFDF08EA67D4AA38B3613DF480D8FA1320513488B307A83BC2BBC3F`；历史构建副本已从 `tmp/` 清理，仅保留 ZIP。当前 main 的代码未改。本轮仅更新协作记录，不提交、不推送。此包是 `10a710f` 当时的完整程序，不是“最新后端 + 旧前端”的混合版。
+
 ## T-056 当前代码、界面与 README 同步 GitHub（Codex，2026-10-28，done）
 
 - 人工明确要求把当前代码和界面同步到 GitHub 并更新 README。旧 REQUIREMENTS/PLAN 顶部仍以 T-007 为当前任务且禁止提交，与当前任务板及本轮人工要求冲突；已在动手前告知人工，按本轮明确授权执行。先检查 Git 状态、当前分支与 `origin/main`，远端抓取成功且与本机 main 一致。原 `codex/t001-github` HEAD 与 main 文件树一致，已保留全部未提交改动切换到 main。

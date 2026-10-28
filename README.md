@@ -6,7 +6,7 @@
 
 > 面向企业内容运营：把“授权素材采集 → 热度筛选 → 联网研究 → AI 写作 → 人工审核 → 导出”变成可恢复、可追溯的桌面工作流。程序在客户 Windows 电脑本地运行，无需部署数据库服务。
 
-[60 秒免 Key Demo](#60-秒免-key-demo) · [生成样例](docs/showcase/articles/sample-1.md) · [运行 Demo](#运行-demo) · [详细文档](#详细文档)
+[24 秒免 Key 功能演示](#24-秒免-key-功能演示) · [虚构稿件样例](docs/showcase/articles/sample-1.md) · [运行 Demo](#运行-demo) · [详细文档](#详细文档)
 
 > 合规边界：仅处理用户有权管理和使用的账号及素材；采集与发布须遵守平台规则；AI 输出必须经人工审核。公开 Demo 全部使用虚构或脱敏数据。
 
@@ -41,36 +41,22 @@ flowchart LR
 
 技术栈：Python 3.13 · OpenAI Responses API · DeepSeek · pywebview / WebView2 · Playwright · SQLite · python-docx · PyInstaller。
 
-## 60 秒免 Key Demo
+## 24 秒免 Key 功能演示
 
-![WeWriter 免 Key 产品流程演示](docs/showcase/wewriter-demo.gif)
+![WeWriter 虚构数据功能演示](docs/showcase/wewriter-demo.gif)
 
-演示模式使用独立数据库和虚构素材，不调用采集服务或模型接口。此 GIF 与下方截图拍摄于早期界面，当前界面已改为双入口工作台，具体以运行中的程序为准。
+此 GIF 根据软件自带的虚构演示用例绘制，是功能示意而非真实运行录屏；账号、文章和稿件名称均为样例。实际演示模式使用独立数据库，不调用采集服务或模型接口。当前界面和交互以运行中的程序为准。
 
 ## 详细文档
 
 <details>
-<summary><strong>详细文档：界面、客户使用、失败恢复、安全、开发与版本记录</strong></summary>
-
-## 界面预览
-
-| 工作台 | 任务详情（采集漏斗与选文） |
-|---|---|
-| ![工作台](docs/showcase/screenshots/workbench.png) | ![任务详情](docs/showcase/screenshots/task-detail.png) |
-| **公众号** | **文章库（按阅读量）** |
-| ![公众号](docs/showcase/screenshots/accounts.png) | ![文章库](docs/showcase/screenshots/articles.png) |
-| **文章详情** | **稿件库** |
-| ![文章详情](docs/showcase/screenshots/article-detail.png) | ![稿件库](docs/showcase/screenshots/drafts.png) |
-| **稿件阅读与审核** | **设置** |
-| ![稿件](docs/showcase/screenshots/draft-view.png) | ![设置](docs/showcase/screenshots/settings.png) |
-
-截图中的公众号名称、原文标题与正文已隐去，除示例稿件外的稿件标题也已隐去。
+<summary><strong>详细文档：客户使用、失败恢复、安全、开发与版本记录</strong></summary>
 
 ### 生成示例
 
-以下为 2026-10-25 真实任务的一篇自动生成稿（联网检索 + AI 二审，未经人工修改），按导出格式保存：正文不含内部来源编号，文末附参考资料网站。
+以下稿件使用程序内置的虚构公众号与文章名称，只用于展示内容结构和来源追溯；不代表实际模型输出质量。
 
-- [四部门10月23日发布防中介通知｜专精特新申报材料将接受跨部门核验](docs/showcase/articles/sample-1.md)
+- [让每日阅读变成可追溯的创作素材（虚构演示稿）](docs/showcase/articles/sample-1.md)
 
 ## 客户使用
 

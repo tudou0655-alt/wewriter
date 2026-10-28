@@ -1,5 +1,174 @@
 # Current handoff — T-008 文章质量（Claude → Codex 只读审查）
 
+## T-056 当前代码、界面与 README 同步 GitHub（Codex，2026-10-28，进行中）
+
+- 人工明确要求把当前代码和界面同步到 GitHub 并更新 README。旧 REQUIREMENTS/PLAN 顶部仍以 T-007 为当前任务且禁止提交，与当前任务板及本轮人工要求冲突；已在动手前告知人工，按本轮明确授权执行。先检查 Git 状态、当前分支与 `origin/main`，远端抓取成功且与本机 main 一致。原 `codex/t001-github` HEAD 与 main 文件树一致，已保留全部未提交改动切换到 main。
+- README 现按当前代码说明双入口工作台、默认草稿优先、DeepSeek 默认搜索、极致了采集、按请求计费与已知限制；旧版本说明标为历史记录。`.gitignore` 加入 `tmp/`、`output/`，避免本机临时数据库和私人输出误入提交。提交范围仅源码、测试、界面资源与相关协作文档，不含运行数据库、构建包、临时输出、个人文件或凭据。
+- 已运行：`git diff --check` 退出码 0（四处既有 LF/CRLF 提示）；`scripts/verify_delivery.py` 6/6 通过；主要 6 个前端 JS 的 `node --check` 通过。全量 `unittest discover -s tests -v` 在本机 Playwright 浏览器启动前停滞，人工中止；排除 `test_drafts_page.py`、`test_ui_shell.py` 后 499 项离线测试结束，8 失败、1 错误。失败项涉及旧续跑预期、关键事实缓存/查证、旧引用修复预期、历史计数和 T-013 旧提示词断言；尚未逐项修复，不能宣称测试通过。README 已如实注明本次结果。真实接口和客户 GUI 未运行。
+- 下一步：核对待提交文件清单及敏感信息，提交并推送 `main`；记录提交号与远端状态。上述测试失败留为后续独立修复任务，不能把本次同步当作正式质量验收。
+
+## T-055 旧包清理（Codex，2026-10-28，done）
+
+- 人工要求只保留本轮 Luna 计费修复包。已检查 `dist/` 各旧版本 ZIP、解包目录及旧源码归档副本；删除前核对每项目标都在 `dist/` 内，且保留包 SHA-256 与 T-054 记录一致。
+- 清理后 `dist/` 恰有一个文件：`T054/WeWriter-v0.10.4-Windows.zip`，大小 77,083,564 字节，SHA-256 `A8C8D7A15AFDF08EA67D4AA38B3613DF480D8FA1320513488B307A83BC2BBC3F`。未动源码、正式数据库、`build/`，未提交或推送。历史任务文档中的旧包路径仅作历史记录，文件已不存在。
+
+## T-054 Luna 费用待核对（Codex，2026-10-28，review）
+
+- 用户截图中 4 次 `gpt-6-luna` 请求均显示待核对、已知费用 ¥0。只读检查正式库的任务 17 计费事件元数据：4 次请求均记录了模型费率、输入/输出 token；联网搜索还记录 4 次搜索。各事件均带 `unpriced_cache_write=true`，因此程序有意不把未知费用记为零。未读取请求正文、密钥或配置。
+- 原因是 Responses 用量字段 `cache_write_tokens_details` 位于 `usage.input_tokens_details` 下，旧代码从上一层取有效期字段。已在 `wewriter/costs.py` 修复解析，按 30 分钟/12 小时有效期分别计费；仅 GPT-5.6 及后续明确适用的模型计算缓存写入溢价。对只返回汇总写入数的响应，使用本请求记录的官方默认 30 分钟有效期。格式矛盾仍保持未知；旧事件没留写入数量，无法精确倒算。`wewriter/web/costs.js` 提示该历史限制，`docs/collab/T047_RATES.md` 补官方依据。
+- 新增 Luna 明细、汇总、无效明细及旧模型防重计测试；更新旧的错误字段预期。离线 264 项单测通过；`node --check`、Python `py_compile`、交付检查 6 项、`git diff --check` 均通过。未调用真实 API，也未改正式库。独立测试包 `dist/T054/WeWriter-v0.10.4-Windows.zip`（77,083,564 字节）已通过包校验，SHA-256 `A8C8D7A15AFDF08EA67D4AA38B3613DF480D8FA1320513488B307A83BC2BBC3F`；未覆盖旧包。下一步由人工用新包运行新任务，确认 Luna 写作和搜索费用显示。未提交或推送。
+
+## T-053 当前源码 ZIP 导出（Codex，2026-10-28，done）
+
+- 人工要求将当前源码压缩为 ZIP 放在桌面。依据 Git 已跟踪文件和未忽略的新文件建立清单，保留未提交源码改动；排除 `.git`、`.venv`、`.local-data`、`build`、`dist`、`tmp`、`output`、缓存及密钥类文件。归档包含 156 个文件和一份说明当前为含未提交改动快照的 `SOURCE-SNAPSHOT.txt`，不含运行数据库或旧安装包。
+- 工作区归档在 `dist/T053/公众号信息获取及文章生成-源码-2026-10-28.zip`，已复制至桌面 `C:\Users\土豆\Desktop\公众号信息获取及文章生成-源码-2026-10-28.zip`；大小 12,204,163 字节，SHA-256 `623C522C1E5402341C55C0CF76FA33442B3D927C2C803F52E4F5B8E30F7846E6`。ZIP CRC、清单数量与每个源文件内容的 SHA-256 对比通过，桌面副本哈希一致。未提交、推送或调用外部服务。旧 REQUIREMENTS/PLAN T-007 与本轮人工导出要求冲突，以本轮要求为准。
+
+## T-052 主页面生成按钮对比度（Codex，2026-10-27，review）
+
+- 人工截图显示浅色“生成文章”按钮的文字几乎不可见。原因：按钮背景使用固定浅色，文字却使用 `--lime-ink`，该变量在深色主题中变为浅色。
+- 在 `wewriter/web/styles/pages/workbench.css` 将按钮固定为 `#fffdf3` 背景、`#1a281f` 文字和边框，两种主题均保持深浅对比；按 sRGB 亮度公式计算文字与背景约 15.06:1。只改此样式，未触及采集或写作逻辑。
+- `scripts/verify_delivery.py` 6 项通过，`git diff --check` 退出码 0（既有换行警告）；PyInstaller 构建和包内容检查通过。新包 `dist/T052/WeWriter-v0.10.4-Windows.zip` SHA-256 `F5C5DC823D3185B26E85DD7F8C157564CE3EC4E9B8E4143F64F9CB9EF713A5CD`，未覆盖旧 T051。浏览器/真实 GUI 视觉尚未验证，由人工用新包复看深色与浅色主题。未调用真实 API、改正式库、提交或推送。旧 REQUIREMENTS/PLAN T-007 与本轮人工要求冲突，以本轮要求为准。
+
+## T-051 采集与写作拆分（Codex，2026-10-27，review）
+
+- 人工要求主页面分别提供“采集素材”和“生成文章”，不让每次写作都重新采集。工作台两个入口各有独立确认面板：采集选时间范围，只读取公众号文章列表，保存文章信息与阅读量；写作选篇数，只从本地库中选择启用公众号的未清理、未写过素材，不请求文章列表。热度排名优先使用最近已测阅读量；门槛为 0 时，阅读量未知的旧素材排在已知数据后；提高门槛时未知数据不参与。库存不足时在启动前告知，运行中库存变化也会在付费研究和写作前拦截。写作阶段仍会按需读取未保存的正文，并可能调用摘要、联网搜索和写作模型；已保存正文和摘要沿用现有缓存。无数据库迁移。
+- `Engine.run` 对采集任务不解析模型密钥、不写文章；写作任务冻结素材库选文及当前阅读量，续跑沿用原选文。批量子任务共享现有文章读取会话。每日定时任务改为从本地库写作，不自动采集；历史详情中的“重新采集”也只更新库。旧手动入口仍保留兼容，但工作台不再使用。README 和设置页已说明费用边界。
+- `tests/test_t051_split_actions.py` 4 项：只采集时不调用模型或取正文；连续两次写作不重新请求列表且不重复用文；空库不调用服务；未知阅读量在零门槛下可用。相关 20 组共 260 项离线测试通过；另两项旧测试 (`test_delivery_reliability` / `test_status_labels`) 与 T037 预检行为冲突，未按本任务改动。`test_ui_shell.py` 在本机 Playwright 浏览器启动阶段停住，已中止，真实 GUI 交互待人工验证。`node --check wewriter/web/workbench.js`、Python 编译、`scripts/verify_delivery.py` 6 项和 `git diff --check` 通过（仅既有换行警告）。
+- 独立构建 `dist/T051/WeWriter-v0.10.4-Windows.zip`，PyInstaller 成功，包内容检查通过，SHA-256 `B723C9BFCFC9BF075905EADFEBF4E935556D5865CC024492F2BC533E95FCD57D`；未覆盖 T050 包。建议人工先点“采集素材”，确认任务显示采集篇数，再点“生成文章”写一篇，观察不会重新读取公众号列表及费用。包未签名，真实 DeepSeek 和 GUI 未测试，费用节省幅度不能量化。未读凭据、调用真实付费 API、改正式库、提交或推送。旧 REQUIREMENTS/PLAN T-007 与人工本轮要求冲突，以本轮要求为准。
+
+## T-050 DS 失败率分析与草稿优先交付（Codex，2026-10-27，review）
+
+- 人工在 T049 新包续跑后再次失败，已明确要求先分析原因。只读正式库截至本次查看：DS V4 Pro 写作的三篇已保存稿正文分别约 475/1500、1025/1500、586/2000 字；子任务 7 于引用编号错误修复后续跑，最终 1465/2000 字，被 T048 设定的 90% 硬门槛以 `model_output` 拒绝。子任务 7 选中原文约 1276 字、摘要 8 条事实，联网研究有 16 条来源与约 11417 字说明；不能据此断言“资料不足”。任务失败发生在写作阶段，未见采集/搜索错误。没有同素材 GPT 对照组，不能量化 DS 相对 GPT 的固有失败率。
+- 代码机制：`wewriter/api.py` 的写作请求携带长事实/风格/引用/保密/JSON 约束，DeepSeek ChatCompletions 强制 `thinking.disabled`；JSON 模式只约束格式，不保证引用和字数。T048 原逻辑将短稿缓存后再拒绝，导致续跑可能反复失败；T049 来源编号改为局部 `S1` 后解决上一轮错号，但新一轮触发短稿门槛。错误文案“现有资料不足以安全扩写”仅根据字数推断，证据不足。
+- 人工随后明确要求先保证走完整个流程。本轮默认启用“优先生成草稿”：写作使用简短规则，保留事实与允许来源号；初稿短于目标时可定向补段一次，仍短则保存并提示。无效来源号从正文移除、留下 `【来源提示】`；缺少来源号、标题重复等可修问题改为待审核提示。缺失正文、不可修复的保密泄露仍阻止保存。自动二审、联网核验、风格改写在此模式中跳过，单篇成本和失败触点减少；用户可在设置里关闭此模式恢复旧严格流程。稿件报告说明未执行自动核验，不能把草稿当成已核实成稿。
+- `tests/test_t050_draft_first.py` 新增 4 项，覆盖简化提示、严格模式、跳过自动复核和整条任务保存待核稿。相关 19 组 256 项离线测试通过；`node --check wewriter/web/settings.js`、变更 Python 文件编译、`scripts/verify_delivery.py` 6 项、`git diff --check` 通过（既有换行警告）。旧 `tests/test_t013.py` 单独运行有 2 失败 3 错误，涉及旧提示词断言、主题资源与当前环境缺少 `webview`；`test_delivery_reliability.py` 另有 1 项、`test_status_labels.py` 另有 1 项仍与 T037 预检行为冲突。未宣称全套测试通过。
+- 已独立打包 `dist/T050/WeWriter-v0.10.4-Windows.zip`，SHA-256 `87E1EC3211628A925359EF6FCDFDCA9F4FA2F6C84D0F0AE693385300A962F8F0`，内容检查通过。EXE 演示烟测虽返回 0，但没有生成预期结果文件，故不算运行验证。下一步由人工用新包跑一篇真实 DS 任务，检查草稿是否成功保存、警告是否可见、字数与事实是否需人工修改；真实 DS/GUI 尚未验证。未调用付费 API、修改正式库、提交或推送。旧 REQUIREMENTS/PLAN T-007 与本轮人工修复要求冲突，以本轮要求为准。
+
+## T-049 引用编号导致写作失败（Codex，2026-10-27，review）
+
+- 人工测试 T048 包失败。经授权只读查询正式 SQLite 的任务元数据：父任务 6 目标 1 篇，子任务 7 于综合写作阶段 `model_output` 失败；仅选中数据库文章 ID 12，写作结果引用了 `[S1]`、`[S10]`、`[S2]` 等当前任务不存在的编号。程序此前直接将数据库文章 ID 用作来源号 `[S12]`，模型重试时未收到具体允许编号。未读取文章正文、凭据或模型原始响应，不能逐句判断它为何选用每个错误编号。
+- 修改 `wewriter/pipeline/materials.py`：每次稿件的公众号素材从 `S1` 连续编号，仍单独保存真实 `article_id` 供追溯；修改 `wewriter/api.py`：写作请求列出 `allowed_source_ids`，重试反馈列出本篇全部允许编号并说明事实 `F` 序号不能当 `S` 来源号。无效引用仍必须通过原有校验，未盲目归属给唯一来源。
+- `tests/test_t049_sources.py` 新增 2 项复现文章 ID 12 → `S1` 及无效 `S10` 后按明确反馈重试。`test_core` 38、`test_independent` 8、`test_article_quality` 31、`test_no_other_accounts` 13、`test_t040_safety` 12、`test_t048_length` 7、`test_t049_sources` 2、`test_batch_replacement` 7、`test_rerun_review` 12、`test_verify_items` 19 均通过，共 149 项；`git diff --check` 退出码 0（既有换行警告）。
+- 独立测试包 `dist/T049/WeWriter-v0.10.4-Windows.zip` 内容校验通过，SHA-256 `838DE86C033FA33C168B5F3D69D96823A018D5952E02F004EEEAA1F465D4DE0B`，未覆盖 T048 包。下一步人工用此包继续原失败任务或新建一篇，确认 DS 是否使用本地来源编号并达到字数目标；真实 API 可能仍因模型编造不存在编号失败，届时保留原始事实校验。未调用付费 API、修改正式库、提交或推送。旧 REQUIREMENTS/PLAN T-007 与人工本轮修复要求冲突，以人工指令为准。
+
+## T-048 DeepSeek 稿件篇幅修复（Codex，2026-10-27，review）
+
+- 人工截图：目标 2000 字，新 DeepSeek 默认模型下两篇正文约 475、586 字。代码原因是写作规则把目标写成参考、没有程序下限，二审/风格改写后也没有篇幅保护。未能读取正式 SQLite（只读连接被运行环境拒绝），因此不能断定具体哪一阶段缩短了这两篇。
+- 修改 `wewriter/api.py`：写作提示要求正文在目标的 90%–110% 并围绕已有事实展开；资料不足时不得编造；定向补写反馈进入第二次写作请求。修改 `wewriter/pipeline/composition.py`：使用工作台相同的正文计数字符规则；真实 `Model` 初稿不足时最多再写一次；二审/改写后和保存前均守住 90% 下限，风格改写明显缩短成稿时不采用；旧写作断点通过新的阶段键隔离。事实与引用校验不放松，短稿不会被当作目标达成稿保存。
+- 测试：`test_t048_length.py` 7、`test_article_quality.py` 31、`test_style_card.py` 29、`test_readability.py` 14、`test_independent.py` 8、`test_t040_safety.py` 12、`test_no_other_accounts.py` 13 均通过（部分已有测试在工作区 TEMP/TMP 下执行）；`git diff --check` 退出码 0，只有既有换行提醒。`test_t013.py` 仍有 2 失败 1 错误，断言已被早期 T-029/T-047 写法替换的旧提示词；不属于篇幅逻辑。无真实模型调用，因此 1800–2200 字命中率及额外一次写作费用待人工实测。
+- 独立测试包 `dist/T048/WeWriter-v0.10.4-Windows.zip`，包内容校验通过，SHA-256 `7C8F2BDA172240391F04796BB9C6A84533492380F7BF8915DD5C25437965CA9F`，未覆盖 T047 包。此前已保存的短稿不会自动扩写；建议人工以 2000 字再生成一篇，观察正文计数、任务提示与费用。未读凭据、改正式库、调用付费 API、提交或推送。旧 REQUIREMENTS/PLAN 的 T-007 只读限制与人工明确修复要求冲突，以本轮要求为准。
+
+## T-046 国内联网搜索 API 调研（Codex，2026-10-27，done）
+
+- DeepSeek 官方新 Search/Fetch API：`POST /v1/tools/search`、`/v1/tools/fetch`，使用同一 DeepSeek API Key，成功且有结果的请求各 5 元/千次；另有 `deepseek-v4-pro` Responses 服务端 `web_search`。更适合本程序的低成本路线是独立 Search 查询、必要时 Fetch 官方原文、现有 DeepSeek 模型整合事实；模型 token 与 Fetch 另计。以 T-045 的 28 次等量搜索演示，裸搜索费约 ¥0.14，不能代表最终稿件总价。
+- 阿里云百炼北京地域 Qwen3.8-Flash 支持联网，Responses API `web_search` 使用 agent 多轮检索，搜索 4 元/千次；模型原价输入 0.8 元、输出 2.7 元/百万 token。28 次等量搜索演示为 ¥0.112，另加模型及其他工具费用。官方说明百炼 Responses 不自动插入正文引用角标，需从 `web_search_call.action.sources` 建立引用映射。百度千帆独立搜索 API 官方页面列每日 100 次免费额度，属于另一条需集成的搜索接口。Kimi 官方网页提示其内置搜索正在升级，近期不建议使用。
+- 当前 `wewriter/research.py` 固定 OpenAI Responses 后台任务及 `url_citation` 解析，`wewriter/pipeline/research.py` 固定取 OpenAI Key，不能在设置里仅改模型名或 URL 完成切换。后续适配须保留官方来源 URL、[W] 引用、事实核验、费用账本、断点与失败重试，并用少量真实调用比较中文政务/招投标检索质量。本轮只读调研，无业务代码或正式配置变更、无真实 API 调用。旧 REQUIREMENTS/PLAN 的 T-007 范围与本轮明确调查指令冲突，以人工要求为准。
+
+## T-045 联网搜索成本与模型选择（Codex，2026-10-27，done）
+
+- 正式库新任务子 job 2、3 的四次 OpenAI Responses 搜索记录为 11、8、2、7 次 web_search，共 28 次；合计输入 142,594 token（缓存 6,912）、输出 22,071 token。按程序本地估价口径搜索工具费 $0.28、`gpt-5-mini` token 费 $0.0782353，合计 $0.3582353，按程序示意汇率 ¥6.70/$ 约 ¥2.40。该金额是程序估算，不等于账单或实时汇率。
+- 官方 OpenAI Docs：`gpt-6-luna` 支持 Responses 的 web_search；标准 token 价 $0.10 输入、$0.01 缓存输入、$0.50 输出/百万 token，web_search 另收 $10/千次。用同一历史用量推算合计 $0.30467282（约 ¥2.04），换模型只约省 15%，因为搜索次数主导费用。Luna 已在设置界面的联网模型选项中，改动只影响新任务；本版 `wewriter/costs.py` 未记录 Luna 价，成本面板可能显示未知，实际仍按服务方计费。
+- 后续建议另批实现并离线验证搜索工具次数上限（例如常规研究 2–3 次、查证 1–2 次）、低搜索上下文、只查关键未证事实；保留官方来源引用质量。此轮只读调查及官方文档检索，未修改业务代码、正式配置或调用付费 API。旧 REQUIREMENTS/PLAN 的 T-007 范围与本轮直接调查指令冲突，以本轮人工要求为准。
+
+## T-044 两篇目标只生成一篇（Codex，2026-10-27，done）
+
+- 清空后新任务父 job 1：配置为 `separate_web`，目标 2 篇独立主题文章；55 篇返回、4 篇符合时间窗并入队。热度第 1 篇子 job 2 素材可用，摘要与联网研究已保存，但“综合写作”发出两次 DeepSeek 写作模型请求，最终响应未通过 JSON 解析，报 `model_output`，未形成写作阶段断点或稿件。没有持久化原始模型响应，故不能确定首次校验错误，也不能进一步确定最终响应是缺括号、附加文本还是其他语法问题；输出 token 数不足以证明截断。热度第 2 篇子 job 3 成功，draft 1 存在，故父 job 1 正确汇总为“部分完成 1/2”。这次不是来源标题保密规则或筛选数量造成。
+- `wewriter/api.py` 的 `Model.write` 对校验失败重写一次完整稿件，两次均无效则失败；`Engine.run_separate` 没有把模型格式错误列入自动补位原因。原任务“继续”会保留已经完成的稿件及失败篇的摘要/联网研究缓存，重新付费调用写作模型；若改设置中的写作模型，旧任务仍按保存的原配置继续，需新任务才生效。此次只读核对正式库、日志和代码，无真实 API 调用、正式库写入或业务代码改动。建议后续单独任务实现低成本 JSON 格式修复和最小脱敏诊断，避免整稿二次重写及盲目重试。旧 REQUIREMENTS/PLAN 的 T-007 范围与本轮直接调查指令冲突，以本轮要求为准。
+
+## T-043 清空本机应用数据（Codex，2026-10-27，done）
+
+- 人工要求清空数据库数据、备份的文章和稿件及配置项。按程序 `main.py` 的实际路径，仅清理 `C:\Users\土豆\AppData\Local\WeWriter`。删除前核实绝对路径精确匹配、无 WeWriter 进程、目录内无重解析点；目录包含 `workspace.sqlite`、旧 `wewriter.sqlite`、`before-clear-20261027-111903-735628.sqlite`、`article-images`、`keys.dpapi.json`、`ui.json`、日志及浏览器诊断缓存。未读取密钥内容，也未创建新的备份。
+- 删除后复核应用目录、现用数据库、自动备份、密钥文件均不存在；`WeWriterDemo` 数据目录不存在。下次启动将重建空数据库，需重新设置 API Key、账号及微信读书登录。源码、构建测试包和其他位置文件未动；用户手工另存到未指定位置的导出文件不在本轮范围。旧 REQUIREMENTS/PLAN 的 T-007 只读范围与本轮直接清理指令冲突，以本轮人工要求为准。
+
+## T-042 来源标题误杀正常政策主题（Codex，2026-10-27，review）
+
+- 人工明确：不让成稿提到其他公众号或其文章名字，但允许正常使用相同的公共政策名称与主题词。此新指令覆盖 T-030/T-041 的来源标题连续 10 字即拦截规则。截图中的“2027年中央预算内投资资金申请报告提纲”属于被误杀的主题片段。
+- `wewriter/anonymity.py` 现在检测完整/近完整来源文章标题，或明确将引号内片段介绍为一篇文章的标题；单纯主题或文件名称不算来源泄漏。其他公众号名称、作者及“据某公众号”等说法仍拦截。T-041 的短调用修标题只在真正标题命中时触发，因此正常主题不会增加该请求。`tests/test_no_other_accounts.py` 覆盖正常政策主题、完整文章标题、明确文章标题引用以及模型调用次数。
+- 离线验证：`test_no_other_accounts.py` 13/13、`test_article_quality.py` 31/31、`test_t040_safety.py` 12/12、`test_export.py` 3/3。`test_delivery_reliability.py` 28/29：旧测试 `test_continue_keeps_original_selection_and_new_collection_reads_current_list` 期待“部分完成”，但独立复现后新任务只剩 1 篇可用素材而目标为 2，现有引擎以 `material` 返回“失败”；该测试使用虚构 `Writer`，未受标题规则改变影响。`git diff --check` 退出码 0（已有换行警告）。PyInstaller 构建退出码 0，独立包 `dist/T042/WeWriter-v0.10.4-Windows.zip` 的内容检查通过，SHA-256 `7B42B16395A392E64DB7F58D9DB84116FD52D64CE5E66A4438D32078467D667D`。未调用真实付费 API、修改正式库、提交、推送或覆盖旧包。
+- 请人工关闭旧版后使用 T042 包，对任务 3 选择“继续原任务”，检查是否产出合规稿件及实际费用。先前失败的写作结果未保存，需要重新写作；已有摘要和研究可复用。真实 GUI、模型结果及节费幅度未在本轮验证。来源文章与正式文件恰好同名、或稿件以隐晦方式暗示来源时，仍需人工审稿。
+
+## T-041 生成标题撞到来源标题导致 0/1（Codex，2026-10-27，review）
+
+- 人工截图任务“今天、目标 1 篇、0/1、费用 ¥1.9364”。对正式库 `C:/Users/土豆/AppData/Local/WeWriter/workspace.sqlite` 用 SQLite immutable 只读查询；父任务 3 共返回 55 篇、54 篇超时窗、1 篇入队，子任务 4 可用素材 1，错误码 `model_output`，错误为“稿件出现了其他公众号或其文章（标题：2027年中央预算内投资资金申请报告提纲），未保存”。该片段是来源文章标题的连续部分，触发 `anonymity._title_hit` 至少 10 字的保密检查。不是素材不足。任务无已存稿件；正文、摘要及研究结果已保存，原任务可在修复后续跑复用，但失败的写作输出未保存，写作仍需重新调用；已发生费用不会退回。
+- `Model._write_once` 原先遇标题重合即 `ApiError(validation)`，`Model.write` 再完整重写一次；第二次标题仍重合则失败。本轮保持保密规则不变，仅当标题命中来源文章标题片段、正文和大纲均无保密命中时，发一次最多 300 token 的标题定向修改请求，保留已生成正文。修改标题仍需非空、长度上限、无来源泄漏、无正文外新增数字；不合格时进入原有整稿重试，最终 `_finish_draft` 与 `leak_guard` 继续拦截。
+- 编辑：`wewriter/api.py`、`tests/test_no_other_accounts.py`，以及本任务协作记录。离线专项：`test_no_other_accounts.py` 12 OK，`test_article_quality.py` 31 OK，`test_t040_safety.py` 12 OK；`git diff --check` 退出码 0（已有换行警告）。只用虚构素材和模型替身，未调用真实 API、读取凭据或修改正式数据库。
+- 独立测试包 `dist/T041/v0.10.4/WeWriter.exe`、`dist/T041/WeWriter-v0.10.4-Windows.zip`；PyInstaller 退出码 0，离线包内容校验通过，ZIP SHA-256 `F79E4B2A7D81CBF11FCCD1B2FADA729074E93DD2CD02E77BAE511673625E9EA3`。包未签名，真实 webview/模型结果待人工测试；无已完成的打包后 smoke 结果。建议关闭旧 WeWriter 进程后运行 T041 包，对任务 3 选择“继续原任务”，避免重新采集和重复联网研究。不要使用旧 T040 包判断此修复。若模型新标题仍违规，程序会继续拒绝保存；不能承诺真实质量或费用节省数值。
+
+## T-040 分层重构交接（Codex 主 agent，2026-10-27，review）
+
+- 人工要求三名子 agent 并行负责架构/技术选型、代码实现、独立代码与功能复核；三线均已交接。设计在 `docs/collab/T040_ARCHITECTURE.md`。以现有 Python/SQLite/pywebview 实施，不改依赖或 schema，保留 HEAD `a6e0b53` 之上大量既有未提交改动。旧 REQUIREMENTS/PLAN 顶部 T-007 与新指令冲突，已事先报告，以本轮人工任务为准。
+- 任务/费用层：`max_paid_requests` 可选，默认空值；Dajiala、EveryInfra、模型、联网搜索付费请求及重试共计次数，批量父子共享上限。上限是请求次数，不是人民币金额承诺；未知费用保持 unknown。设置页风格卡及连接测试、经典界面付费检查另有独立 UtilityFunnel 账本。用户可提高当前设置中的次数上限后继续原任务，复用已完成断点。设置页显示次数配置与独立操作费用。移除当前写作不消费的默认热点风格分析调用，旧报告兼容。
+- 资料层：跨文章分段摘要复用使用 summary-v2 键，要求同标题、同全文 hash、同分段内容、同模型配置/规则版；捐赠文章未清理，facts 非空且引语可在当前分段定位。旧 v1 缓存、清理素材、无效事实不跨文章复用。阅读量采集逻辑仍按新任务实时执行。跨任务政策研究复用尚未实施。
+- 成稿层：同任务写作、事实审核、查证、风格审核在既有 analyses 表保存带输入指纹的阶段结果；动态风格/近期稿件输入在任务内冻结，付费次数上限不影响内容指纹；临时失败不会被当成功断点；清理稿件删除该任务阶段缓存。修复伪政府域名被误判为官方、数字归属互换和许可/否定翻转通过风格改写静态检查的反例。语义检查仍不保证所有事实正确，保留人工审核。
+- 实现范围包括 `wewriter/config.py`、`costs.py`、`engine.py`、`pipeline/{composition,materials}.py`、`style.py`、`db.py`、`webapp.py`、`ui.py`、`web/settings.html`/`settings.js`；新增 `tests/test_t040_safety.py`，调整相关既有测试。实现 agent 专项：T040 12/12、费用 8/8、风格 29/29、稿件质量 31/31、DB 17/17、热点 2/2、补跑二审 12/12、T010 19/19、摘要恢复 8/8；复核 agent 独立复跑 T040 12/12、摘要恢复 8/8、采集漏斗 17/17 及前述其他专项，均通过；`git diff --check` 退出 0（已有换行警告）。全量 discover 与 UI shell 长时间无输出而中断，不能称通过。
+- 主 agent 生成隔离测试包：`dist/T040/v0.10.4/WeWriter.exe` 与 `dist/T040/WeWriter-v0.10.4-Windows.zip`，未覆盖正式包。PyInstaller 退出码 0，离线包内容检查退出码 0；ZIP SHA-256 `A10C7D4874711342091FB19A68489F4DBE9530D9501621A51234AC2D0D2A0E2E`，build_id `0.10.4+ga6e0b53.dirty`。构建未签名。打包后 EXE 演示 smoke 尝试未产生结果文件，不能称通过；人工须验证实际 webview 界面及功能。
+- 留给人工测试：以独立数据目录启动 T040 包，先用虚构/演示数据查看次数上限、金币未知费用和稿件状态；真实费用及质量需人工在可接受成本下对账。下一阶段需另议数据库迁移或备份格式：人民币保守金额上限、跨任务政策研究复用、稿件完整版本来源快照、含图片备份、账号利用率指标。未调用真实付费 API、读取凭据、提交/推送。
+
+## T-039 全面复审（Codex，2026-10-27，done）
+
+- 本次人工要求覆盖整体架构、成本、体验、数据复用、鲁棒性、安全性；旧 REQUIREMENTS/PLAN 顶部仍指 T-007，TASKS/HANDOFF 已到 T-038，存在文档时序不一致。本轮以人工全面复审为范围，保留全部既有未提交改动，仅追加协作记录，未修改程序。
+- 成本：collect 对全部启用账号查询，weread._provider_listing 每号最多 8 页；costs 仅记录估算，没有任务/日预算门禁。composition.write_one 必做热点风格分析，但当前 api.write/public_source/style_review 不消费其结果（报告消费）。research_cache 以 job_id 为键，不能跨任务主题复用；compose 写作/二审/查证/风格结果只在最后保存，后段中断缺乏持久化恢复点。style_generate 的 Transport 未接 CostMeter，费用统计不覆盖所有入口。没有读取真实账单，不能确定各项实际占比或承诺节省比例。
+- 已复现：source_level({'source_id':'W1','url':'https://ministry.gov.example.com/a'}) 返回 official；same_facts 对“甲100万乙200万”改为“甲200万乙100万”返回 []。均为离线虚构数据，未访问域名。前者为域名信任边界误判，后者证明集合校验不等于语义核验。
+- 数据：analyses 按 article_id+cache_key，正文 hash 去重只在本次 materials 的集合内；draft_versions 只保存标题正文，没有该版本的 sources/report；backup 仅复制 SQLite，外部 article-images 不含在备份。建议有期限的研究复用、内容哈希分析缓存、关系表及完整版本快照；实时阅读量仍保持实时，不混同于稳定正文/研究复用。
+- 验证：`.\\.venv\\Scripts\\python.exe -m unittest discover -s tests -p test_costs.py -v` 8 OK；同命令 test_background_research.py 12 OK；test_style_card.py 首跑 28 通过/1 临时数据库打开错误，将该进程 TEMP/TMP 指向项目 tmp 后复跑 29 OK；`git diff --check` 退出码 0（既有 LF/CRLF 警告）。未运行全量测试或真实接口/GUI验收。
+- 下一建议：人工批准独立成本任务后由实现者先做全入口计量、分阶段预算、去除无效风格调用、写作断点；事实安全单独修复域名判定与改写事实关系校验，保留人工最终审核。验收采用每篇人工通过稿总成本、重复付费率、缓存命中率、质量通过率及耗时，不以调用次数单独衡量。
+
+## T-038 金币弹层费用图表（Codex，2026-10-27，review）
+
+后续成本风险核对（只读，未改程序）：人工预计客户启用 20–30 个公众号，并明确要求每次都查实时热度，不接受同日快照复用。当前 `collect.collect` 对全部启用账号逐个调用 `WeReadSource.articles`；极致了优先走可翻页的 `post_history`，每号最多 8 页，HTTP 对部分错误还可重试，代码未设置全任务采集请求/费用硬上限。按人工给定 ¥0.16/次，全部账号各成功一页的起步成本为 ¥3.20–¥4.80/任务，翻页或重试可增加请求；不能把该范围当作总费用上限。极致了官方 Apifox 文档另列实时、不可翻页、样例含 `read`/`zan` 的当天发文 `post_condition` 接口（https://s.apifox.cn/410674f9-f451-4b4f-957a-5f54f243bc83），但当前代码没有接入；样例 `cost_money=0.16` 不等于客户合同价，且其日期边界、实际字段和稳定性未做付费验证。若切换“今天”模式，需先离线适配与测试，再获授权做受控真实验证；实时跨全部账号排名仍至少需要逐号查询，除非供应商提供经核实的批量服务。已询问人工单次采集硬预算，未获答复前不擅自设阈值。未读取凭据、未调用真实接口。
+
+人工使用 T-038 包后反馈清空文章与稿件库仍显示“目标 3 篇、仅 1 篇候选”。仅只读检查本机正式数据库最新任务（job 2，2026-10-27 11:19 中国时间）：稿件 0、文章 1；本次 5/5 个公众号列表采集成功，共返回 55 篇，54 篇超出“中国时间今天 00:00 起”的时间窗，合格候选 1，`used=0`、`below_threshold=0`，故与清库无关。唯一候选来自 04:00 的一篇文章；另一个公众号最近发文 10-26 23:59:14，仅比今天起点早 46 秒。T-037 前置检查按目标 3 篇停止，未进入联网研究/写作；费用记录为 5 次已计量的采集请求、0 次模型与搜索请求。未修改正式数据库、凭据或程序代码，未触发真实接口；此处仅为用户实测结果的只读诊断。
+
+人工要求将金币弹层的长文字账单改为更有设计感的柱状图。当前 `REQUIREMENTS.md` / `PLAN.md` 页首仍把旧 T-007 称作“当前任务”，与任务板不一致；按本次明确的人类请求单独登记 T-038。仅修改 `wewriter/web/costs.js`、`wewriter/web/styles/pages/costs.css` 与协作记录，保留其余未提交工作。面板现以总额卡片、费用构成色条和按采集/联网搜索/模型分项的横向占比柱为主；调用次数仍可见，token 明细和计价说明折叠显示。已知金额按原数据比例绘制，未知费用单独提示，不画成已知的 0 元；各项颜色区分，窄窗限制宽度，深色主题的未知费用提示另有配色，减少动画偏好会关闭柱宽过渡。没有改费用统计、价格或金币拖动逻辑。
+
+验证：`node --check wewriter/web/costs.js` 通过；`.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_costs.py -q` 8 项通过；离线 DOM 渲染 smoke 确认已知费用 0.5/1.5 的柱宽为 25%/75%、未知费用仍显示“待核对”、token 可展开；`git diff --check` 退出码 0（既有文件换行提示）。尝试启动 Playwright 浏览器做视觉截图，但启动持续无输出，已终止该预览；因此实际 webview 排版、深浅主题和拖动仍待目视验收。
+
+以当前含 T-037/T-038 的未提交工作区独立构建 `dist/T038/WeWriter.exe`，打包 `dist/WeWriter-v0.10.4-Windows-T038.zip`（77,054,178 字节，SHA-256 `6850DBB9DF86C0B07BEB6B3A97427176786571174915DFAB9FDFB241ABAB7C9A`），未覆盖 T-036 或正式包。PyInstaller 退出码 0，归档确认含 `wewriter/web/costs.js` 和 `wewriter/web/styles/pages/costs.css`；ZIP 包含 EXE、安装脚本、README 和构建信息，`testzip()` 无坏文件。打包后以独立 `.local-data/tests/t038-demo` 运行 `--demo --smoke-test`，输出 `ok=true`，六页均通过；该检查使用经典 Tk 页面，不证明金币弹层的实际 webview 视觉和拖动。包未签名，未调用真实接口、未读取密钥、未提交或推送。用户可在 T-038 测试包内试用；既有 T-036 包不含 T-037/T-038 修改。
+
+## T-037 候选不足时的付费前检查（Codex，2026-10-27，review）
+
+人工实测 T-036：批量目标 2 篇，5 个公众号返回 55 篇，50 篇超出窗口，5 篇合格候选里 4 篇已用于既有稿件，剩 1 篇；程序仍进入联网搜索和模型写作，写作因来源文章标题连续片段校验而失败，最终 0/2，却产生采集约 ¥0.80、联网搜索约 ¥1.26、DeepSeek 约 ¥0.20 的估算费用。只读数据库记录显示采集 5/5 成功，子任务错误码 `model_output`。具体生成文本未保存，无法确认标题片段命中是否确属误判。
+
+本轮仅修可提前判断的部分：`Engine.run_separate` 在采集、按热度排序、排除已用文章并补齐历史队列之后，若可用候选少于目标且本任务尚无已保存稿件，立即以“失败/素材不足”结束，不创建子任务、不联网研究、不写作；提示明确说明采集请求已发生、可能收费。目标 1 篇且有 1 篇可写仍正常运行；已有稿件的续跑不被该条件直接终止。未改热度排序、标题保密铁律或真实计费方式。采集结果必须向服务商请求后才知道，故无法保证采集零费用；稿件泄露校验只能在模型产出后完成，此项未被前置检查解决。
+
+验证：`.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_batch_replacement.py -q` 7 项通过；同法 `test_independent.py` 8 项、`test_hotspots.py` 2 项、`test_costs.py` 8 项、`test_collection_funnel.py` 17 项通过；`test_t010.py` 初次运行因沙箱临时目录无法写入 SQLite 而失败，将本次测试命令的 `TEMP`/`TMP` 指向项目 `tmp` 后 19 项通过。`git diff --check` 退出码 0（既有文件有换行提示）。先尝试按模块名运行专项，因 `tests/test_batch_replacement.py` 用 `import test_core` 且测试目录不在模块搜索路径，出现导入错误；改用仓库既有的 discover 方式通过。未运行全量测试；未调用真实接口、未读取密钥、未修改正式数据库、未打包、未提交或推送。测试包 T-036 不含本轮修复，人工验证前需另行打包。
+
+## T-036 补交可打开的金币组件测试包（Codex，2026-10-27，review）
+
+人工随后截图显示“软件已经在运行”，但看不到窗口和托盘。只读检查主机进程发现两个 `dist/T035/WeWriter.exe` 进程（PyInstaller 父子进程，13:52 启动）仍持有 `Local\\WeWriter.Desktop` 单实例锁；实际数据库只读检查运行中任务数为 0。仅终止旧 T035 子进程后父进程自行退出；复查已无 WeWriter.exe，锁随进程释放。使用 T036 EXE、独立 `.local-data/tests/t036-lockcheck` 数据目录和 `--smoke-test` 在主机环境运行，退出码 0、6 页均 ok，复查无残留进程。未碰正式数据库、密钥或真实 API。根因是旧进程仍存活；窗口/托盘为何不可见未证实。新包可由人工正常双击验证网页金币交互。
+
+人工截图显示仍在运行 `a6e0b53` 的旧 T-035 包，所以金币不存在；前次仅交源码、未打包，是 Codex 的交付遗漏。本轮保留旧包，以当前含 T-036 的未提交工作区在独立 `dist/T036/WeWriter.exe` 构建，并生成 `dist/WeWriter-v0.10.4-Windows-T036.zip`（77,052,610 字节，SHA-256 `ADA4647BA18C9E1A730255B898D293E42D0C0EDAEA3F76CB7AC3642AD2E1DC96`）。构建退出码 0；PyInstaller 归档清单确认包含 `wewriter\\web\\costs.js`、`wewriter\\web\\styles\\pages\\costs.css` 和 `wewriter\\web\\workbench.html`。清单 `0.10.4+ga6e0b53.dirty`。正式包校验脚本只接受 `v0.10.4` 文件夹和正式 ZIP 名，在不碰旧包的临时同名校验目录通过；打包后 `--demo --smoke-test` 退出码 0、六页均 ok。T-035 EXE 前后 SHA-256 一致，未覆盖。包未签名，未调用真实接口、未提交、未推送。网页金币交互需人工打开 T-036 包确认；离线 smoke 走经典 Tk，不能证明 webview 拖动和展开。
+
+## T-036 金币用量与费用组件（Codex，2026-10-27，review）
+
+人工要求在程序工作台增加可拖动的金币小组件，点击展开每部分（极致了采集、各模型、联网搜索）的请求数、输入/缓存/输出 token、搜索次数及人民币合计。Claude 已由人工确认暂停编辑工作台页面。当前 `REQUIREMENTS.md` / `PLAN.md` 仍把旧 T-007 写为“当前任务”，与任务板及本轮人工要求冲突；本轮按人工明确要求登记 T-036，保留旧文档和全部既有未提交改动。
+
+实现：`wewriter/costs.py` 把计费请求事件放进现有 `jobs.funnel` JSON，不迁移数据库。`Transport` 每次真正尝试发送前先记一条；成功响应记录极致了有效返回或模型 usage，后台搜索按 response id 哈希关联一次，轮询不另收费。HTTP 重试、超时和缺 usage 记为“费用未知”，不写 0。任务重试保留历史用量；父任务汇总子任务且不重复加。补跑二审亦接入。仅保存数字、模型 ID、固定价格快照及搜索响应 ID 的哈希，不保存 Key、提示词、URL 或原始响应。工作台右下金币可拖动、点击/键盘打开弹层，查看当前任务和历史任务详情对应的分项。
+
+金额是**基于实际请求和返回用量的估算，不是实际扣费账单**。极致了 ¥0.16/次取自人工提供的合同口径；模型价格快照核对日 2026-10-27，DeepSeek 使用峰时单价作保守估算；OpenAI 搜索按 $0.01/次加模型 token。USD/CNY 固定换算假设为 6.70，未查询实时汇率。自定义接口、未知模型、失败且不知是否计费的请求不计入已知金额，单独提示。历史任务无用量记录，无法回填。价格依据：[DeepSeek 官方价格](https://api-docs.deepseek.com/quick_start/pricing/)、[OpenAI 模型与工具价格](https://developers.openai.com/api/docs/pricing)、[GPT-5 Mini](https://developers.openai.com/api/docs/models/gpt-5-mini)、[GPT-5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra)。实际结算需与供应商账单核对。
+
+离线证据：`python -m unittest tests.test_costs -v` 8/8；`python -m unittest tests.test_costs tests.test_streaming tests.test_collection_funnel -q` 41/41；`python -m unittest discover -s tests -p test_background_research.py -q` 12/12；`test_status_labels.py` 2/2；`test_rerun_review.py` 11/11。`node --check wewriter/web/costs.js`、`python -m compileall -q` 和 `git diff --check` 通过；`python main.py --demo --smoke-test .local-data/tests/t036-smoke.json` 返回 ok、6 页通过，但系统 Python 启动 demo 时网页界面回退经典 Tk，**未验证金币拖动与展开的真实 webview 交互**。尝试使用内置浏览器打开本地 `file://` 页面时被浏览器 URL 安全策略拒绝；按策略未改用绕过方式。未运行全量测试（先前全量测试在交付可靠性测试附近停滞）；未调用真实付费 API、未读取真实凭据、未打包、未提交、未推送。下一步由 Codex/人工在可用 webview 的测试包中检查拖动与弹层；随后用一笔脱敏账单核对换算结果。
+
+## BUILD-009 T-035 本地测试包（Codex，2026-10-27，done）
+
+人工要求打包以便自行测试。当前工作区包含 T-035、T-034 与 Claude 其他未提交改动；本轮在独立 `dist/T035` 构建，可执行文件与安装脚本、README、build-info 放入 `dist/WeWriter-v0.10.4-Windows-T035.zip`（77,040,526 字节）。PyInstaller 退出码 0；构建清单为版本 `0.10.4`、提交 `a6e0b53`、`dirty=true`、中国时间 `2026-10-27T10:16:32+08:00`。交付内容校验通过；打包后以 `--demo --smoke-test` 启动退出码 0、6 个页面均 `ok`。ZIP SHA-256：`B9B261B124FEC57788CC744F82B97C4014A3AF831E400BCB0EDD78228F0A40B9`。旧 `dist/v0.10.4` 和正式 ZIP 均未覆盖；未签名、未提交、未推送、未调用真实 API。此包仅供本机/授权测试，T-035 客户 83 分质量目标、事实语义风险及全量回归仍未验收。旧协作文档里的 T-007 禁止构建仅限历史任务；本次人工明确要求构建。下一步由人工使用 T035 ZIP 试运行并反馈稿件质量与错误。
+
+## T-035 83 分稿件兜底提示词工程（Codex 三 agent，2026-10-27，review）
+
+人工将《三篇对比稿-v2》客户评价 83 分指定为写法兜底，要求三个子 agent 分别设计框架、依框架实现、独立审核。目标和安全边界见 `T035_GOAL.md`；并行顺序和逐文件所有权见 `T035_COLLAB.md`。83 分仅代表客户对样本的主观评价；样本事实未获本轮核验，不能直接作为新稿事实。旧 `REQUIREMENTS.md` / `PLAN.md` 顶部仍标 T-007 为当前任务，与任务板当前状态不一致；按本次人工明确要求登记 T-035，保留旧文档不覆盖。
+
+三路工作已交接：设计见 `T035_PROMPT_DESIGN.md`；实现见 `T035_IMPLEMENTATION.md`；独立审核见 `T035_PROMPT_REVIEW.md`。默认风格卡现在仅提炼样本写法，不带样本事实；写作提示要求一条读者主线、有据的标题和开头、随证据变化的层级；启用写法审核时每篇调用一次，低分可定向改写。过去无规则命中的稿件现在可能多一次模型调用，实际费用和时长未测。离线专项测试 29+14+31 项通过，主 agent 复跑文章质量 31 项通过；`git diff --check` 退出码 0（仅既有换行警告）。全量测试在 `test_delivery_reliability.WeReadCoverageTest.test_skill_fallback_is_marked_latest_only` 附近停滞，已中断，不算通过。现存 Claude 未提交改动及 T-034 修复均已保留；未调用真实模型/采集/搜索，不打包、不提交、不推送。
+
+独立审查结论：**提示工程离线目标基本落实，客户文章质量与事实正确性尚未验收。** 两项 P1：风格改写可把“可以申报”变为“不能申报”而通过现有数字/来源集合检查；来源编号存在不能证明句义得到证据支持。本轮提示及报告已明确这些边界，但没有程序层语义担保。低分而无有效改写时，原稿仍保存并标为待人工复核。T-035 留 `review`；进入客户自动交付前需要事实保护、同资料的新旧真实稿对照和客户评分，不得把旧样本的 83 分移作新稿成绩。
+
+## T-034 两次任务缺少联网引用而失败（Codex，2026-10-27，review）
+
+人工报告再次失败。只读检查本机任务记录：前一轮子任务 23、后一轮子任务 25/26 均在写作格式校验时失败，错误为“稿件未同时引用原文和联网来源（缺少联网来源 [W]引用）”；后一轮父任务 24 因两个子任务均失败，最终为 0/2。联网研究已有带 `[W#]` 的内容；`wewriter/style.py` 的事实清单按句号先拆分，而研究文本把 `[W#]` 放在句号后，导致事实和标记分离，写作阶段拿不到可引用的联网事实。这里的结论来自本机任务记录和代码，不能证明其他失败都由同一原因造成。
+
+最小修复：`fact_sheet()` 分句时把句末 `[W#]` 连同句子保留；`tests/test_style_card.py` 增加句末标记、多个句子和无标记句子的回归测试。对失败任务现存联网研究做离线重放，修复前可引用的 W 事实为 0，修复后子任务 23/25/26 分别为 9/6/8。未改采集、模型提示、选文和旧任务数据；未发真实 API 请求。专项 `python -m unittest discover -s tests -p test_style_card.py -v` 24 项通过；`git diff --check` 通过。尝试全量测试时在交付可靠性测试附近长时间没有进展，已人工中断，因此全量结果未验证。
+
+使用当前未提交工作区构建独立本地包：`dist/WeWriter-v0.10.4-Windows-T034.zip`，SHA-256 `9B3BBB66C1F018611A7D00E47C5DB9BFCC4C313DE9D7CC15EA227DAF165973CF`。交付校验（使用同名隔离检查目录）通过，打包后 `--demo --smoke-test` 退出码 0、6 个页面均 `ok`。常规构建路径 `dist/v0.10.4/WeWriter.exe` 两次因 Windows 拒绝覆盖而失败，原因尚未查清；旧正式包未覆盖，并已将其 ZIP 备份到 `.local-data/package-backup/WeWriter-v0.10.4-Windows-before-T034.zip`。新包标记为 dirty 构建，包含 Claude 现存未提交改动。未提交、未推送。下一步由人工用 T034 新包试运行一次相同采集任务，确认可生成带原文与联网引用的稿件；仍需补跑全量回归，并查明常规构建路径的文件占用或权限问题。
+
 ## T-015 招聘者入口、架构图、免 Key Demo 与 CI（Codex，2026-10-26，done）
 
 人工提出公开仓库求职展示优化。README 顶部已改为“可恢复、可追溯的多阶段 AI 内容工作流”，不自称多智能体；一屏内说明问题、可核验成果、Mermaid 架构和 3 个技术难点。原客户使用、失败恢复、安全、开发和版本说明放入“详细文档”折叠区。首部增加仅处理授权账号/素材、遵守平台规则、人工审核和 Demo 使用虚构/脱敏数据的边界。没有准确耗时、成本或质量指标时明确不编造。保留 T-014 新增的智能应用控制和“复制全文”说明。
@@ -866,6 +1035,13 @@ git status --short
 - 需人工决定：采购签名证书（中国大陆主体大概率不符合 Azure Trusted Signing 资格，建议 OV 证书）；是否把客户临时说明发给客户。
 - 下一步：人工在 Windows 上运行全量测试并试用“复制全文”；Codex 下次打包（BUILD-002）请注意 spec/build.ps1 已改。
 
+## T-017 - 2026-10-26 - Claude
+
+- 人工需求：带“有事实或质量提示待核实”的稿件，直接把需要核实的段落标红。
+- 实现：`ui.review_marks(title, body, report)` 读取素材报告“## 审核提示”各条，以及“## AI 二审”中“逐句核对｜保留｜…｜证据：无”的句子；从提示里取引号内文字或“：”后的原句（去掉来源标记、Markdown、引号和空白后比较；引号内至少 6 字、冒号后至少 8 字，避免短词误标），定位所在段落（按空行分段，与页面一致；-1 为标题）。`dr_get` 返回 `marks`、`unplaced`。稿件页给这些段落加红色左边线和浅红底，提示写在段落下方；对应不到段落的提示单独列在“来源与审核提示”里；顶部提示条写明标红处数。编辑、导出、复制不受影响。
+- 局限：模型自由书写、未引用原句的提示无法定位，只列在下方；编辑正文后仍按旧报告匹配，原句被改掉的不再标红。
+- 验证（Windows，本机 .venv）：`tests.test_review_marks` 5 项通过；全量 `unittest discover -s tests` 299 项通过（OK）。代码与测试由补丁应用（协作文档部分因 Codex 已更新 TASKS/HANDOFF 未套用，改为手工追加本条；任务号由 T-015 改为 T-017，因 T-015 已被 Codex 使用）。未验证：真实稿件页面观察。
+
 ## T-016 - 2026-10-26 - Claude（engine.py 模块化，请 Codex 只读审查）
 
 - 人工决定由 Claude 执行。纯搬迁，不改业务逻辑、不改测试、不碰 T-017 文件（ui.py、webapp.py、web/drafts.*、tests/test_review_marks.py）。拆分前工作区 engine.py 与 HEAD（含 T-013 的 74c5ccd）一致。
@@ -881,3 +1057,216 @@ git status --short
 - 验证（Windows，本机 .venv，Python 3.13）：拆分前基线 `python -m unittest discover -s tests` 299 项 OK（40.2 秒）；拆分后 299 项 OK（30.9 秒）；`python -c "import wewriter.engine, wewriter.ui, wewriter.webapp"` 通过；用 AST 比对原 engine.py 中每个模块级定义与搬迁后的定义完全一致，方法体除 `self`→`engine`、`self.db`→`db`/`engine.db`、相对导入层级外无差异；`scripts/verify_delivery.py` 6 项通过；`git diff --check` 通过。未提交、未推送、未打包。
 - 请 Codex 只读审查：模块边界是否合适（尤其 `common.py` 这一额外模块、`open_source` 放在 collect、批处理留在 engine）、兼容导出是否齐全。
 - 2026-10-26：人工告知 Codex 审查完成并授权提交；Codex 审查结论未写入文档，T-016 保持 review，待 Codex 补记结论后再改 done；仅提交 T-016 相关文件与协作文档的 T-016 部分，T-017 改动仍未提交。
+- 2026-10-26：PR #1 已合并到 main（合并提交 10a710f，含 a6e0b53）；人工确认“T-016 验收通过”，状态改为 done。
+
+## T-018 – T-021 - 2026-10-26 - Claude（流式输出、后台联网搜索、超时补位、补跑二审；请 Codex 只读审查）
+
+- 来源：人工经协调会话授权四项改进；只改代码与测试，未提交、推送、打包，未调用真实 API，未读取凭据。开始前 BUILD-002 仍标 in-progress，但无打包进程、`dist/WeWriter-v0.10.4-Windows.zip` 写入于 12:30，判断打包已结束，未受影响。保留了 T-017 在 ui.py、webapp.py、web/drafts.* 中的未提交改动。
+- T-018 流式输出（`wewriter/api.py`）：`Transport` 抽出 `_open`（原重试策略不变）、新增 `stream()` 解析 SSE；socket 超时即空闲超时 `STREAM_IDLE_TIMEOUT=60`，另有总时长 `STREAM_TOTAL_TIMEOUT=15 分钟`；读超时、空闲超时、总时长超时都是 `kind='network'`，不重发。`Model.complete(stream=True)` 只用于 write/review：chat/completions 带 `stream_options.include_usage`，拼成与非流式相同的 `choices/finish_reason/usage` 结构后沿用原截断（length）和异常结束检查；Responses 取 completed/incomplete/failed 事件中的最终 response 交给 `response_text`，最终对象没有文本时用 delta 拼接。流在结束标记前断开 → network 错误。回退：服务商配置 `"stream": false`（目前无界面开关，需改设置数据），或服务端忽略 stream 返回普通 JSON 时自动按普通响应处理；transport 没有 `stream` 方法时（测试替身、评估脚本）也走非流式。摘要、图片识别等仍非流式。
+- T-019 后台联网搜索（`wewriter/research.py`、`wewriter/pipeline/research.py`、`wewriter/db.py`）：创建请求带 `background: true, store: true`；拿到 id 立即写 `research_pending`（v5 幂等迁移，新表），再每 5 秒 `GET {search_url}/{id}`，直到 completed/failed/cancelled/incomplete。轮询遇网络错误或 429/502/503 继续轮询，不重新创建；Key/权限错误停止并保留 id。总等待 10 分钟后 `POST /{id}/cancel`（尽力而为）并以 network 错误降级为“仅原文”。重试时有未取回 id 先取回。停止任务：等待用 `transport.cancel.wait`，立即抛 Cancelled，id 保留供重试（不主动取消远端搜索）。取回后引用校验与 [W] 标注逻辑原样（拆为 `WebResearch.parse`）。id 只接受 `[A-Za-z0-9_-]`，防止拼进 URL 路径。降级文字由“超过 300 秒”改为“等待超时/超过等待上限”。`store:true` 意味着 OpenAI 会按其保留策略保存该搜索响应，需用户知悉。
+- T-020 超时补位（`wewriter/engine.py` run_separate）：子任务 `error_code == 'network'`（读超时、空闲超时、连接失败）可补位，每批最多 `NETWORK_REPLACEMENTS=2` 次（补位篇自身超时也占名额）；AUTH/API（Key、余额、权限、参数）不补位、不往下走，素材失败补位规则不变。说明文字逐条写“热度第 N 篇因超时或网络中断失败，已由热度第 M 篇补位”/“热度第 N 篇素材提取失败，已由热度第 M 篇补位”（原“X 篇素材提取失败，已由…补位”改为逐条，现有断言仍满足）。
+- T-021 补跑二审（`pipeline/composition.py` rerun_review/review_state、`engine.rerun_review`、`db.revise_draft`、`webapp` dr_get/dr_rereview、`web/drafts.*`）：二审状态从素材报告判断（有“## AI 二审”= done；有“AI 二审未完成”= failed；否则 missing）。非 done 时详情页显示“补跑二审”。后台用稿件保存的 sources（含 analysis、style_reference、web_research、W 来源）和任务冻结配置调用一次 `writer.review`（校验与重试一次仍在 review 内部），成功后重建素材报告（保留人工审核记录行），保存为新版本、状态回“待审核”，旧版本保留；失败抛错、稿件不变。缺 analysis/来源/风格参考/联网资料 → “缺少资料，无法补跑，请重新生成”（在模型调用前检查）。互斥：engine.lock 非阻塞获取；webapp 用唯一 worker，运行中重复点击或有任务运行均拒绝；运行期间禁用编辑按钮，页面 3 秒轮询，结果提示一次。若补跑期间稿件被人工改过，结果不保存。
+- 测试（新增 43 项）：`tests/test_streaming.py` 16、`tests/test_background_research.py` 12（含 v4→v5 迁移幂等）、`tests/test_batch_replacement.py` 5、`tests/test_rerun_review.py` 10。`tests/test_db_migrations.py`、`tests/test_delivery_reliability.py` 仅把 `SCHEMA_VERSION` 断言 4→5。
+- 验证（Windows，本机 .venv，Python 3.13.15）：`.\.venv\Scripts\python.exe -m unittest discover -s tests -v` → `Ran 342 tests ... OK`（39.8 秒）；`git diff --check` 退出码 0（新文件另查无行尾空格）；`node --check wewriter/web/drafts.js` 通过；`scripts/verify_delivery.py` 6 项通过（演示库迁移到版本 5）。
+- 剩余风险/需人工：①真实 DeepSeek 流式与 OpenAI Responses 流式各写一篇（确认 SSE 字段、include_usage 被接受、长稿不再 240 秒超时）；②真实 OpenAI 后台搜索一篇（确认 background+store 被 search_model 接受、轮询 URL、cancel 行为、计费）；③补跑二审的真实页面点击；④README 第 121/123 行仍写“联网搜索请求超时为 300 秒”，本轮按“只改代码和测试”未改，需另行更新；⑤补跑成功后不改原任务的 warnings/漏斗 quality.review，批量任务说明仍会显示当时的“二审未完成”提示；⑥流式回退开关只能改设置数据（providers.<name>.stream=false），无界面。
+- 下一步：Codex 只读审查 T-018–T-021；人工决定提交与打包。
+
+## BUILD-003 - 2026-10-26 - Claude（打包当前源码）
+
+- 人工指示“打包”，协调会话转达约定：无证书不加 -Sign、先备份旧包、不提交推送、不改版本号。构建前旧包复制到 `.local-data/package-backup/WeWriter-v0.10.4-Windows-before-BUILD-003.zip`（69,056,330 字节，12:30 版）。
+- 命令：`powershell -ExecutionPolicy Bypass -File scripts\build.ps1`（未签名），退出码 0；日志 `.local-data/build-003.log`。
+- 源码状态：HEAD a6e0b53 + 未提交改动（build_id `0.10.4+ga6e0b53.dirty`，built_at 2026-10-26T18:00:57+08:00）。包含 T-013、T-017、T-018（流式输出）、T-019（后台联网搜索，数据库升到 v5）、T-020（超时补位）、T-021（补跑二审）的工作区改动。
+- 产物：`dist/WeWriter-v0.10.4-Windows.zip` 68,021,043 字节，SHA256 `57F746A92F766E344D46DCB5A5DF93BDFC66AD7F0ACD78198C09374F2E781C0D`；`dist/v0.10.4/WeWriter.exe` 68,621,211 字节，SHA256 `AB9E482BE7C665A2182D5A9A38743F295E5B5310A6BA3DD4E2E91A629E91F4F5`。ZIP 内：WeWriter.exe、install.ps1、README.md、build-info.json。
+- 校验：`verify_delivery.py --check-package` “[通过] 发布包内容一致（含未提交改动）”；打包后 smoke `WeWriter.exe --demo --data-dir .local-data\build003-demo --smoke-test ...` 退出码 0，`ok: true`，六个页面通过。
+- 警告：未签名（Windows 11 智能应用控制会拦截，客户交付需 -Sign）；PyInstaller 常规警告 `Hidden import "pycparser.yacctab" not found`（未核对以往构建是否相同；打包后 smoke 正常）。新版会把用户数据库升级到 v5，旧版本软件将无法再打开升级后的数据库。
+- 未验证：真实 API 下的流式写作、后台联网搜索和补跑二审点击。
+
+## T-022 - 2026-10-26 - Claude（二审核对标准统一；请 Codex 只读审查）
+
+- 来源：人工追问稿件 id 11 通过二审仍大面积标红，要求从底层修复，回复“改”批准方案。只读排查结论：二审提示词要求 claim_checks 写“初稿原句”，程序复查却按修订稿句子找完整原文，改写过的句子必然被判“未列入”。未提交、推送、打包，未调用真实 API。
+- 改动（`wewriter/api.py`）：
+  - 核对项新格式：`final_sentence`（修订稿原句，删除为空）、`draft_sentence`（初稿原句，新增写“新增”）、`evidence`（来源编号加片段 /“无需证据”/“无”）、`verdict`（保留/修正/删除/新增）、`note`。`claim_check()` 统一转成内部结构；旧格式（sentence + action）仍可读取，旧格式只做覆盖校验。
+  - `check_problems()`：程序自己逐句比对初稿和修订稿得到改动集（不看模型标的处理方式）。硬校验：改动句必须被某项 final_sentence 完整包含；“保留”两句必须一致；“删除”的初稿句不能还在正文；final_sentence 必须真在修订稿里；改过的标题必须列入。删除项不再算覆盖。
+  - 二审循环：引用校验或核对校验不通过 → 带具体问题清单定向重写一次（沿用原 validation_feedback，最多多一次调用）→ 仍不通过则抛 `kind='validation'`“二审修改稿两次未通过校验…已弃用修改稿”，compose 保留初稿、二审记失败，可“补跑二审”。原“二审新增或改写的句子未列入逐句核对”提示及 5 条上限已删除（保存下来的修订稿不可能再有漏列）。
+  - 从初稿带过来的引语/传播提示不再沿用，统一在修订稿上重新计算，已删除的引语不再提示。`SPREAD_VERBS` 前同一分句内有“不应/不宜/不要/不得/不能/不可/切勿/避免/防止/当作/当成”时不算传播断言。
+- 素材报告（`pipeline/composition.py` `check_table`）：“## AI 二审”下保留其他质量说明，逐句核对改为“## 逐句核对（初稿 → 修订稿）”表格：处理｜初稿｜修订稿｜证据｜说明。`ui.review_marks` 同时读取旧的列表行和新表格（“保留 + 证据无”标红，“无需证据”不标）。
+- 补跑二审：开放给已通过二审的稿件（页面显示中性说明 +“补跑二审”），用新标准重新核对；重跑时不带入上一轮二审自己产生的提示。
+- 测试：新增 `tests/test_claim_checks.py` 11 项（列入改写句通过、漏列后定向重写成功、重写后仍漏列弃用、改写误标保留、删除仍在正文/final_sentence 编造、改标题、新格式字段规则、旧格式兼容与报表、两栏表与标红、“传播”误判、已删除引语提示不带入）。按新行为修改 `tests/test_article_quality.py` 5 处（提示词措辞、改标题/漏列改为退回重写与弃用、删除项不算覆盖、引语用例补列核对）、`tests/test_rerun_review.py` 1 处（已二审稿可再补跑）。
+- 验证（Windows .venv Python 3.13.15）：`python -m unittest discover -s tests -v` → `Ran 353 tests ... OK`；`git diff --check` 退出码 0；`node --check drafts.js` 通过。
+- 离线回放稿件 id 11（数据库副本，用完已删除）：只有第 1 版（二审后文本），初稿正文从未单独保存，只能用旧核对清单里引用的 26 个初稿句近似初稿（改动集偏大，属上限）。新规则下 41 句中最多 39 句会被判“新增或改写未列入”，这份旧输出会被退回定向重写一次，若模型仍列不全则弃用修改稿、保留初稿、二审记失败——不会再以“通过二审 + 大面积标红”的形式保存。“不应将392万元……当作确定事实传播”不再被判传播断言；报告里 5 条引语提示对应的引语均已不在终稿，新逻辑下不会带入。
+- 风险/需人工：①真实模型能否在一次重写内列全所有改写句未验证；大改稿件可能更常被弃用（换来“通过二审即核对完整”）。②核对清单变长，二审输出接近 12000 token 上限时可能触发截断（同样记为二审失败），需用真实稿件观察，必要时调高上限或要求少改写。③已有稿件不会自动变化，可用“补跑二审”按新标准重核。④标题未改动但未列入时仍是软提示（沿用原行为）。
+
+## BUILD-004 - 2026-10-26 - Claude（含 T-022 重新打包）
+
+- 人工再次指示“打包”。BUILD-003 的 zip 先备份为 `.local-data/package-backup/WeWriter-v0.10.4-Windows-BUILD-003.zip`（68,021,043 字节）。`powershell -ExecutionPolicy Bypass -File scripts\build.ps1`（未签名）退出码 0，日志 `.local-data/build-004.log`。未提交、推送，未改版本号。
+- 源码：HEAD a6e0b53 + 未提交改动，build_id `0.10.4+ga6e0b53.dirty`，built_at 2026-10-26T18:38:08+08:00；包含 T-013、T-017～T-022。
+- 产物：`dist/WeWriter-v0.10.4-Windows.zip` 68,026,707 字节，SHA256 `707738071ED6F27775EDE1BFAD6FE27EACCB254BD9EA8B5622BF74699159518A`；`dist/v0.10.4/WeWriter.exe` 68,626,858 字节，SHA256 `966711AA079B3C129C36D4CCC871937D76663F5CA1D4D106313E9FB51F7A3CFE`。ZIP 内 WeWriter.exe、install.ps1、README.md、build-info.json。
+- 校验：包校验“[通过] 发布包内容一致（含未提交改动）”；打包后 smoke（`--demo --smoke-test`）退出码 0，`ok: true`，六个页面通过。
+- 警告：未签名（智能应用控制会拦截）；PyInstaller 提示 `pycparser.lextab/yacctab` 隐藏导入未找到、`webview.platforms.android` 子模块无法收集（Windows 包不使用 Android 平台），smoke 正常。数据库会升级到 v5。
+- 未验证：真实 API 下的流式写作、后台联网搜索、新二审核对标准和补跑二审点击。
+
+## T-023 - 2026-10-26 - Claude（二审不再把查证推给用户；请 Codex 只读审查）
+
+- 来源：人工反馈“二审本来是帮用户省审核时间的，现在等于让用户多干活”，经协调会话给出方案。未提交、推送、打包，未调用真实 API。
+- 规则（`wewriter/api.py`）：`VERIFY_RULES` 进入写作与二审提示：存疑事实三选一——有来源标引用；无来源改审慎表述（如“截至发稿未查到官方公告”）或删除；需官方原件确认的列 `verify_items`（claim / identifiers / queries）交程序处理；review_notes 只写需要人判断的事项。程序侧 `is_verification_todo`（查证动词 核实/复核/核验/检索/核对/查证/查询/查找/留存/取得/更新 + 情态词 发布前/建议/请/需/应/宜/如需/如后续/后续/继续/待）把这类提示转成 verify_items，不进入稿件提示；程序自己的发现（引语逐字核对、传播断言、标题未核对）不受影响。`split_todos` 在写作和二审末尾执行，初稿带来的同类提示同样转换；`merge_similar` 做语义去重（包含且长度≥60% 或相似度≥0.6；程序固定前缀的提示只做精确去重）。降级稿提示改为“仅基于公众号原文”，不再写“需人工复核”。
+- 自动查证（`pipeline/composition.py` `verify_claims`，`research.py` `WebResearch.verify`，`Model.revise_for_verification`）：二审后有 verify_items 且设置开关开启时，每篇最多一次定向联网搜索（复用 T-019 后台模式与引用校验，专找政府采购网/公共资源交易平台/部委与地方文件原件）+ 一次定向修订。查到：新来源按现有 [W] 之后编号（如 W2），修订须通过 `_finish_draft` 与 T-022 `check_problems`，通过才采用并把新来源存入稿件；查不到：修订把相关说法改审慎或删除；修订不通过校验：不采用，稿件不变；联网失败/超时或 Key 不可用：静默跳过。所有结果只写在素材报告“## 自动查证”（含待查证项、结果、查证资料、查证修订对照表），不产生任务警告或用户待办。
+- 设置：`config.DEFAULTS['auto_verify'] = True`；设置页“更多设置与维护”新增开关“二审后自动查证存疑事实”（说明每篇最多多一次联网搜索和一次写作模型调用）；`webapp.set_get/set_save` 读写 `verify`。
+- 显示（`ui.review_marks`、`webapp.dr_get`）：旧报告中的查证待办不再显示；提示语义去重；旧报告里引语已不在正文的引语提示、以及按现行规则已豁免的“传播”提示（如“不应……当作确定事实传播”）不再显示；引号引用正文措辞略有差异时（马鞍山稿多了一个“对”字）按最长连续片段 ≥ 80%（且 ≥12 字）挂到段落。所有提示都被隐藏时不再显示空的“待核实”横幅。
+- 根因（马鞍山 id 12 引号挂不上）：提示引号内为“对符合条件的存量土地……原则上不超过5年”，正文为“提出，符合条件的存量土地……原则上不超过5年；”，多一个“对”导致精确匹配失败。
+- 测试：新增 `tests/test_verify_items.py` 16 项（待办识别、转换与去重、提示词三选一与 verify_items、二审转换自身与初稿待办、查到补引用并顺延编号、查不到改审慎、联网失败静默、开关关闭、修订不通过不采用、默认开启、修订须过逐句核对、verify 搜索载荷、旧待办隐藏/去重/引号模糊挂段落、过期引语与传播提示隐藏）。
+- 验证（Windows .venv Python 3.13.15）：`python -m unittest discover -s tests -v` → `Ran 369 tests ... OK`；`git diff --check` 退出码 0；`node --check` settings.js、drafts.js 通过。
+- 离线回放（数据库副本，用完已删除）：遵义 id 11 原 18 条提示中 8 条查证待办（含旧“未列入逐句核对”提示）在新逻辑下转为自动查证项，其余为程序过期发现；现有稿件页显示 0 处标红、0 条未挂段落提示。马鞍山 id 12 原 5 条全部是查证待办，合并为 4 个自动查证项（两条几乎相同的中标公告提示合并），稿件页显示 0 条。注意：回放只验证分类与显示，自动查证本身需要真实联网，未执行。
+- 风险/需人工：①真实联网查证能否找到政府采购网原件、定向修订能否过逐句核对未验证；②每篇最多多一次 OpenAI 联网搜索和一次写作模型调用（默认开启）；③待办识别是规则匹配，可能把少数真正需要人判断的提示误当成查证待办（如同时含“请”和“核对”）；④补跑二审只重跑二审，不触发自动查证；⑤旧稿件的待办只是隐藏，并未真正查证，需要时可对其补跑二审或重新生成。
+- T-023 补充（协调会话转达，2026-10-26）：①“补跑二审”也走自动查证：`composition.rerun_review` 在二审后调用同一个 `verify_claims`（`_RerunContext` 提供所需的 config/writer/transport），旧稿审核提示中的查证待办经 `split_todos` 转为待查证项一起查；查到的新来源经 `db.revise_draft(..., sources=...)` 存入稿件；补跑时开关取当前设置（不是任务旧快照）。`verify_claims` 开头统一执行 `split_todos`，任何模型输出的查证待办都不会进入稿件提示。②未查证的事实不再完全看不见：`composition.unverified_count(report)` = 旧审核提示中的查证待办（语义去重后）+“## 自动查证”结果为未查证/失败/未采用时的待查证项数；`dr_get` 返回 `unverified`，稿件页在二审说明行用中性颜色显示“这篇有 N 项事实尚未自动查证，可点补跑二审处理”并带按钮，不列具体待办。测试新增 3 项（旧稿计数后补跑查证、补跑时开关关闭仍计数、页面只给数量），T-023 共 19 项。全量 `Ran 372 tests ... OK`，`git diff --check` 退出码 0。
+
+## T-024 - 2026-10-26 - Claude（查证前移到写作前联网研究；请 Codex 只读审查）
+
+- 来源：人工问“为什么要搜两次”，选择方案 1“按这个改”（协调会话转达细则）。未提交、推送、打包，未调用真实 API。
+- 标识抽取（`api.fact_identifiers` / `key_facts`，纯规则，不新增模型调用）：金额（万元/亿元）、文号（X〔年〕号）、项目/采购/招标编号、大写编号、完整日期、单位名称（有限公司/设计院/研究院/研究所/集团/交易中心，允许括号）、发文部门（局/厅/委员会/办公室/人民政府及常见部委）。单位名前的“采购人为”“原文称：”等引导语去掉（取最后一个 为/是/由/向/对/给/称/据/经/、/： 之后；和/与/及 不作分隔，避免切断“住房和城乡建设局”）。从首篇原文摘要的 facts（claim/quote）与 summary 中取含标识的说法，标识全局去重，最多 10 条。
+- 第一次联网研究（`pipeline/research.py`、`research.py`）：key_facts 放入搜索输入（只放在传给搜索的副本里，不进写作素材、不进稿件 sources），提示要求优先查官方原件，每个标识单独写“找到并引用”或“未找到官方出处：标识”。研究结果和缓存记录 key_facts；旧缓存没有该字段时照常使用。
+- 兜底（`composition.verify_claims`）：二审的待查证项中，所有标识都已被第一次研究覆盖（`identifier_status`：带 [W] 引用的句子提到 = 找到；含“未找到/未检索到/未查到…”的句子提到 = 明确未找到）的项目不再搜索；全部覆盖时不搜索、不做查证修订，报告写“已由写作前联网研究覆盖，未触发兜底搜索”；只对剩余项搜索。没有标识的待查证项一律算未覆盖。明确未找到的事实按二审规则用审慎表述，不再单独处理。
+- 素材报告：联网补充资料后新增“## 关键标识（写作前联网核对）”，逐个标识写“已找到官方原件 / 研究写明未找到官方出处 / 研究未涉及”，并说明兜底搜索见“自动查证”；“自动查证”一节列出被第一次研究覆盖的项目。`unverified_count` 把“已由写作前联网研究覆盖”视为已处理。
+- 测试：新增 `tests/test_key_facts.py` 9 项（标识抽取含回放发现的三种形状、key_facts 去重、覆盖判断、搜索提示含/不含标识、标识进入第一次搜索但不进写作素材与稿件、全部覆盖不触发兜底、明确未找到算覆盖、部分覆盖只查剩余项、旧缓存兼容）。全量 `python -m unittest discover -s tests -v` → `Ran 381 tests ... OK`；`git diff --check` 退出码 0。
+- 离线回放（数据库副本，用完已删除）：遵义 id 11 首篇 S16 会送 5 个标识：遵义市生态环境局、400万元、生态环境部、贵州省环境科学研究设计院、392万元。马鞍山 id 12 首篇 S12 会送 4 条说法 6 个标识：马鞍山市住房和城乡建设局、2200万元、2090万元、2026年10月20日、中规院（北京）规划设计有限公司、1986万元。按当时（旧提示）的研究结果，遵义只有“生态环境部”被判为明确未找到，其余未涉及；马鞍山 4 个金额/单位被判为明确未找到——说明旧研究确实没专门查这些标识，新提示下应由第一次研究覆盖。真实覆盖率需用真实 Key 验证。
+- 风险：①标识规则可能漏掉不规范写法（如“约两千万元”）或带入少量非名称词；②覆盖判断依赖研究结果按“一个标识一句话”的格式输出，模型不遵守时会多触发一次兜底搜索（只多花钱，不会漏查）；③第一次搜索提示和结果变长，单次成本略增。
+
+## BUILD-005 - 2026-10-26 - Claude（含 T-023、T-024 重新打包）
+
+- 人工再次指示“打包”。BUILD-004 的 zip 先备份为 `.local-data/package-backup/WeWriter-v0.10.4-Windows-BUILD-004.zip`（68,026,707 字节）。`scripts\build.ps1`（未签名）退出码 0，日志 `.local-data/build-005.log`。未提交、推送，未改版本号。
+- 源码：HEAD a6e0b53 + 未提交改动，build_id `0.10.4+ga6e0b53.dirty`，built_at 2026-10-26T19:26:26+08:00；包含 T-013、T-017～T-024。
+- 产物：`dist/WeWriter-v0.10.4-Windows.zip` 68,042,995 字节，SHA256 `10A5B67E50D7045AB6E3F7F2A475BE39644F2B207024981EF6ABCB0A9120CF75`；`dist/v0.10.4/WeWriter.exe` 68,643,011 字节，SHA256 `48CD01455BCF419C1B60B399D78DB61DE62A248E59A5D3D03E94B788B00EE5CB`。ZIP 内 WeWriter.exe、install.ps1、README.md、build-info.json。
+- 校验：包校验“[通过] 发布包内容一致（含未提交改动）”；打包后 smoke（`--demo --smoke-test`）退出码 0，`ok: true`，六个页面通过。
+- 警告：未签名；PyInstaller 常规提示（pycparser 隐藏导入、webview Android 子模块），smoke 正常。数据库升级到 v5。
+- 未验证：真实 API 下的流式写作、后台与前移查证搜索、兜底查证、新二审核对标准、补跑二审点击、设置页新开关。
+
+## T-025 - 2026-10-26 - Claude（补跑二审点击“没反应”；请 Codex 只读审查）
+
+- 现象：人工在 BUILD-005 EXE（进程路径 `dist\v0.10.4\WeWriter.exe`，22:31 启动）点“补跑二审”，反馈前端没有反应。
+- 排查证据：①本机日志无异常，但当时补跑二审没有任何日志记录；②本机数据库（只读副本）显示稿件 11 在 2026-10-26T11:36:44Z 保存了第 2 版，即后台补跑实际执行并成功，问题在界面反馈；③用真实网页文件 + 替身桥接（真实 Api、假模型）在浏览器复现，以及用源码在真实 pywebview 窗口里脚本点击（慢速与快速两种假后台），按钮都能变成“补跑中…”并出提示——没能复现“完全无反应”；④任务 19 在 11:33:51 被停止。
+- 根因判断（推断，未完全证实）：界面反馈过弱。原实现点击后只把按钮置灰（文字不变），要等后台返回才变“补跑中…”；后台拒绝（如上一个任务仍在停止、worker 仍忙）或运行失败时只有 3.2 秒底部提示，按钮恢复原样，看起来像“没反应”；轮询 dr_get 一次失败就停止轮询，页面会一直停在“补跑中…”。补跑没有日志，无法事后确认当时具体走了哪条路径。
+- 修复：`drafts.js` 点击立即显示“正在启动…”；用 `api` 直接捕获错误，拒绝原因写入审核行上方的常驻状态条（`#review-note`，失败为提示色、成功为绿色），同时弹提示；完成/失败结果也写入常驻状态条；轮询失败继续重试；运行中说明“通常需要 1～3 分钟”；打开另一篇稿件时清空状态条。`webapp.dr_rereview`：上一个任务已停止但仍在收尾时提示“上一个任务正在停止，请过几秒再点”；开始、完成、失败写入日志（`补跑二审开始/完成/未完成：稿件 N`）。
+- 测试：新增 `tests/test_drafts_page.py` 3 项（Playwright 无头浏览器，优先 Edge，不可用则跳过）：慢桥接下点击立即显示“正在启动…”并转“补跑中…”、完成后常驻显示“二审已完成，已保存为第 2 版”；拒绝原因常驻显示且按钮恢复可点；运行失败常驻显示。`tests/test_rerun_review.py` 新增 1 项（停止收尾中的拒绝文案）。全量 `Ran 385 tests ... OK`（本机 Edge 可用，浏览器测试实际运行）；`git diff --check` 退出码 0。复现用的数据库副本与本地服务已删除/停止。
+- 需人工：重新打包并重启软件后，再点一次“补跑二审”；如仍无反应，请把 `%LOCALAPPDATA%\WeWriter\logs\wewriter.log` 中“补跑二审”相关行发来。
+
+## T-026 - 2026-10-26 - Claude（运行记录文案；请 Codex 只读审查）
+
+- 来源：人工问历史任务“失败”与“合格稿件”含义（只读排查：5 个任务均非失败——19:33 为人工停止；12:27、18:09 为“今天”时间窗内仅 1 篇未用过的新文章；“合格稿件”= 人工点了“审核通过”的稿件数，所有新稿仍为待审核，故为 0，非计数错误），随后回复“改一下”。
+- 改动（只改显示）：`ui.job_status_label` 对“部分完成”读取任务说明中的“已生成 N/目标”：含“新素材不足”时显示“素材不足，完成 N/目标”，否则“部分完成 N/目标”，取不到数字时保持“部分完成”；数据库 status 仍为“部分完成”，状态判断逻辑不变。工作台当前任务、任务详情、历史记录都经同一函数，文案一致。`webapp.wb_history` 新增 `made`（`db.task_drafts`，含批量子任务、不含已清理稿件），`workbench.js` 历史行显示“已生成 N/目标 · 已审核通过 M”。
+- 测试：新增 `tests/test_status_labels.py` 2 项（三种部分完成文案与其他状态不变；批量 3 篇目标只生成 2 篇、审核通过 1 篇时历史行为 2/3 · 1，标签为“素材不足，完成 2/3”，数据库状态仍为部分完成，任务详情一致）。全量 `Ran 387 tests ... OK`；`git diff --check` 退出码 0。
+- 未打包：等人工关闭正在运行的软件后做 BUILD-006（含 T-025、T-026）。
+
+## BUILD-006 - 2026-10-26 - Claude（含 T-025、T-026 重新打包）
+
+- 人工指示“打包”；构建前确认无 WeWriter.exe 进程。BUILD-005 的 zip 先备份为 `.local-data/package-backup/WeWriter-v0.10.4-Windows-BUILD-005.zip`（68,042,995 字节）。`scripts\build.ps1`（未签名）退出码 0，日志 `.local-data/build-006.log`。未提交、推送，未改版本号。
+- 源码：HEAD a6e0b53 + 未提交改动，build_id `0.10.4+ga6e0b53.dirty`，built_at 2026-10-26T21:42:21+08:00；包含 T-013、T-017～T-026。
+- 产物：`dist/WeWriter-v0.10.4-Windows.zip` 68,042,854 字节，SHA256 `4D3591FE8668208EE8F2A576C9EF5A5C25D7987524406E18376B83129150C1B0`；`dist/v0.10.4/WeWriter.exe` 68,642,476 字节，SHA256 `2651E49D6041E94B53573D0DF2233D0D3997BB2A4BBBA31DA3466EE1F32CD100`。ZIP 内 WeWriter.exe、install.ps1、README.md、build-info.json。
+- 校验：包校验“[通过] 发布包内容一致（含未提交改动）”；打包后 smoke 退出码 0，`ok: true`，六个页面通过。
+- 警告：未签名；PyInstaller 常规提示（pycparser 隐藏导入、webview Android 子模块）。数据库 v5。
+- 需人工：用新包重新打开后试“补跑二审”（应立即显示“正在启动…”，结果常驻显示），以及工作台历史的新文案。
+
+## T-028 - 2026-10-26 - Claude（文章可读性与去模板化；请 Codex 只读审查）
+
+- 编号说明：开工时登记为 T-027，与另一并行会话的界面任务 T-027（共享外壳 + 工作台）重号，已改为 T-028。两个任务文件不重叠：本任务未改 common.js、workbench.*、accounts/articles/drafts/settings.html；对方任务未改 api.py、composition.py、config.py、ui.py、settings.js。
+- 来源：人工 2026-10-26 反馈稿件“太拗口”“像一个模子套出来的”；客户需求：不像论文、标题和开头清晰简洁抓眼球、层级清楚但不过度结构化、篇与篇不雷同。未提交、推送、打包，未调用真实 API。
+- 诊断（本机 12 篇稿件，只读副本，用完删除）：平均句长 40.4 字，超过 40 字的句子 47%、超过 60 字 19%；标题平均 32.2 字（22～43），12/12 是“关键词｜判断”或“X：Y”两段式，8/12 含“可能/尚/待/先/不能/不是/未”等含糊或否定词；10/12 最后一节是“按 N 步倒排/现在怎么准备”，结尾多用“结论很明确”“最稳妥的做法不是……而是……”；“不是……而是……”类句式 15 次，“对……而言”14 次，口径 23、依据 28、属地 15、为准 17、不宜 13、底稿 13、倒排 10。原文（杜工谈谈《设备更新验收工作开始的相关要求》）是口语化转述 + 编号清单，并不拗口。
+- 根因：`EDITORIAL_BRIEF` 规定了标题样式“关键词｜核心判断”和固定顺序“发生了什么→往年对比→哪些企业→申报要点→建议与风险”，并要求“时间怎么倒排”的建议；二审第 9 项要求每篇补往年对比和可执行建议；事实规则要求用归属和边界词表达不确定性（合理，但没有限定位置），加上 T-023 的“截至发稿未查到官方公告”，导致来源说明进入标题和首段。
+- 改动（`wewriter/api.py`）：EDITORIAL_BRIEF 去掉固定顺序和两段式标题，往年对比改为“有资料才写”；新增 `TITLE_AND_OPENING`（标题≤22 字、一个具体钩子、禁含糊词、数字须有依据；开头两三句讲事件和与读者关系；来源说明不进标题和第一段）、`PLAIN_VOICE`（口语短句、单句尽量≤40 字、禁用词与句式清单、小标题写读者能用的信息、不设固定收尾和“按几步倒排”章节）、`STRUCTURES` 五种结构（问答式、清单式、场景式、对比式、时间线式）与 `STRUCTURE_RULES`（写作模型输出 structure 和理由；recent_drafts 为近期稿件标题/开头/小标题，要求明显不同）。写作提示加入以上规则与 recent_drafts；输出 structure 经 `chosen_structure` 解析（不在五种之内记为空，不影响成稿）。二审提示加入标题/口语规则和第（10）项可读性检查，并收到 structure 和 recent_drafts。程序检查 `readability_problems`：标题字数与含糊词、标题和首段的来源说明、平均句长>32 或长句（>40 字）占比>30%、禁用词与句式、与近期稿件标题/开头相似度≥0.6 或≥2 个小标题雷同。二审第一次输出有这些问题时，与 T-022 的核对问题一起作为反馈触发一次定向重写；重写后只要通过事实与逐句核对即可采用，可读性残留只记入质量说明“可读性｜…｜仍有…”，不因文风弃用修改稿（避免为文风多付费或丢掉事实合格的修订）。
+- `pipeline/composition.py`：`recent_shapes(db)` 取最近 8 篇未清理稿件的标题、开头、小标题，写作前放入 config['recent_drafts']（批量任务逐篇保存，后写的会避开先写的）；补跑二审同样取（排除自身）；素材报告新增“## 写作结构”。
+- 风格预设：“政策申报实务”改为“面向企业老板和申报负责人：像懂行的朋友当面讲事，短句、说人话，结论先行；用具体数字和例子讲清政策变化和该做什么，不写公文腔和论文腔，不夸张营销。”（`config.DEFAULTS`、`ui.STYLE_PRESETS`、`web/settings.js` 同步）；`config.migrate` 把以旧预设文字开头的风格（含“补充要求”）替换为新文字，自定义风格不变。
+- 对比脚本：`scripts/compare_readability.py`（未运行，需 `--yes` 才会调用付费模型）：从数据库副本取指定稿件，用当前提示重写一遍并二审，输出 before.md/after.md/summary.json（标题字数、平均句长、长句占比、禁用词、可读性问题、所选结构）。
+- 测试：新增 `tests/test_readability.py` 14 项（提示词含新规则与 recent_drafts/structure、旧骨架已移除、干净稿通过、标题字数与含糊词、首段来源说明、长句与禁用词、与近期稿件相似、结构解析、可读性触发一次重写且不弃用、重写仍须过逐句核对、无问题不重写、预设迁移、recent_shapes、报告写结构）。`tests/test_article_quality.py` 1 处断言改为只检查第一条质量说明（新增可读性质量说明行）。全量 `Ran 404 tests ... OK`；`git diff --check` 退出码 0。
+- 风险/需人工：①未用真实模型验证新提示的效果，需授权费用后运行对比脚本（建议 id 10、11、12 三篇，约 3 次写作 + 3～6 次二审调用）；②可读性问题会让部分稿件多一次二审调用；③禁用词和相似度阈值是经验值，可能需要按实际稿件调整；④“推断必须使用可能、预计”等事实规则未放松，正文里仍会出现必要的审慎表述，只是不再进标题和首段。
+
+## T-029 - 2026-10-26 - Claude（风格与真实性分离：事实清单 + 风格卡/范文 + 两道审核；请 Codex 只读审查）
+
+- 来源：人工“问题根本不在于核验规则的具体数字上，问题在于模型怎么理解客户需要的风格，然后能保证风格又保证真实性”；协调会话转达架构与 token 预算约束，并同意“生动/编造对照示例”“稿件设为范文/反例”。未提交、推送、打包，未调用真实 API（风格卡生成与对比运行均需人工同意费用）。
+- 新模块 `wewriter/style.py`：`fact_sheet`（纯程序组装，不新增调用：原文摘要 facts→reported，uncertainties→unverified，联网研究句子按引用网站判 official（政府域名）/reported，“未找到官方出处”句→unverified；每条带 id、来源编号、适用范围、允许说法强度）；`strength_problems`（官方/强制/后果类词语 STRONG_TERMS 出现在只引用非官方来源、且来源原文没有该词的句子里即判超强度）；`fact_signature`/`same_facts`（数字、来源标记集合必须不变，不得新增标识和引语）；`DEFAULT_STYLE_CARD`（据客户 80 分稿分析，含禁忌和“可以写/不能写”对照）；`card_text`（≤800 字）、`skeleton`（标题+开头+小标题+1～2 段代表段落+不要学，≤1000 字）、`choose_example`（按标题相似度选 1 篇范文，再按分数）、`style_block`（风格部分预算 2500 字，超出截短范文骨架并给出说明）、`read_example_file`（docx/md/txt，md 支持 `<!-- score/avoid/kind -->` 元信息）。
+- 写作（`api.Model._write_once`）：系统提示 = 固定 `WRITER_RULES`（只用事实清单、按可信等级控制说法强度、出处说明只交代一次、不用风格卡“不能写”的夸大）+ 风格卡 + 范文骨架 + 最后才是本篇说明；用户消息 = 事实清单、精简来源列表、用户补充风格、近期稿件等。不同稿件的系统提示前缀逐字一致（同一风格卡与范文时完全相同），便于命中上下文缓存。移除写作提示中的 EDITORIAL_BRIEF（“补充新信息优先”、固定章节、两段式标题）、ARTICLE_VOICE 与 T-028 的标题/口语/结构硬规则。
+- 事实审核（`review`）：只修事实、不改文风；不再接收 style/style_reference/structure/recent_drafts；新增审稿项“说法强度不能超过来源可信等级”，程序 `strength_problems` 与 T-022 `check_problems` 一起作为硬校验（不过则定向重写一次，仍不过弃用修改稿）。T-028 的可读性重写从事实审核移除。
+- 风格审核（`api.Model.style_review` + `composition.style_pass`）：T-028 的标题/开头/句长/禁用词/相似度检查降为参考信号，只有信号发现问题时才调用一次风格审核（6 维 1～5 分，任一维 <3 给出只改写法的改写）；改写须通过 `_finish_draft` 来源校验、`same_facts`（事实集合不变）和 `strength_problems`，否则不采用。查证（T-023）与事实审核都不带风格内容。素材报告新增“## 写作风格”（风格卡来源、所用范文骨架、预算截短、参考信号、风格分数与是否采用）。补跑二审同样走事实审核→查证→风格审核。
+- 范文库：DB v6 `examples` 表（kind good/bad、title、body、score、avoid、skeleton、origin）；`db.add_example/examples/delete_example`；设置页由 `settings.js` 动态插入“写作风格”区块（不改 settings.html，避开并行界面任务 T-027）：列表/删除、粘贴添加、导入 docx/md/txt、查看并编辑风格卡、恢复默认、“根据范文库重新生成”（一次付费调用，确认框提示）；稿件页新增“设为范文/反例”（`dr_mark_example`，去掉 [S]/[W] 标记，可填分数和不要学的地方）。`Model.style_card` 从范文骨架和反例生成风格卡并校验；`config` 新增 `style_card`（None=默认卡）、`style_review_enabled`。
+- 种子范文：客户 80 分稿保存在 `.local-data/examples/seed-80-设备更新验收.md`（git 忽略，不进仓库），score 80，avoid 已标注。按 id 10 原文核对“不要学”清单：原文列有“项目资金的管理台账；国债资金的管理台账”，故“国债资金和自有资金要分别建台账”不属编造，已移出；另外发现原文没有、补入不要学：“私自变更……验收直接不予通过”“第三方节电/增效检测报告”“不能是低端复刻、落后产能平移”“官方明确要求的核心资料共10项”。测试夹具 `tests/fixtures/style/example_fictional.md` 为虚构内容，不含客户原文。尚未导入用户正式数据库：需在设置→写作风格→导入，或由人工授权后写入。
+- 输入量（id 10 真实素材离线测量，字符数）：写作系统提示 ≈4278 → 3279（规则 1796 + 风格 1346：默认卡 665、范文骨架 655）；写作用户消息 8272 → 7390（事实清单取代整份素材）；事实审核系统提示 ≈4452 → 2498。风格部分上限 2500 字，范文库变大不影响每篇输入（测试覆盖）。“previous”为按旧提示词常量估算。
+- 调用次数（每篇）：写作 1（+1 校验重写）、事实审核 1（+1 定向重写）、查证 0 或 2（T-023/T-024 不变）、风格审核 0 或 1（仅参考信号有问题时）。T-028 在事实审核里因可读性多出的那次重写已取消，因此正常情况与 T-028 之前持平，最多多 1 次风格审核调用。风格卡生成只在范文库变化后手动触发，一次调用。
+- 测试：新增 `tests/test_style_card.py` 19 项（事实清单等级/范围/强度、强度检查、卡与骨架尺寸、预算截短、前缀逐字一致且范文库变大输入不增长、只有写作带风格、事实审核强度退回、风格改写事实不变才采用（数字/来源标记/强度三种拒绝）、无信号不调用、范文增删改与风格卡保存/恢复默认、docx 导入、设为范文/反例、风格卡生成校验、范文选择、配置默认）；按新设计改写 `test_article_quality.py` 4 处、`test_t013.py` 3 处、`test_readability.py` 4 处（T-028 规则改为参考信号）；版本断言 5→6（3 个文件）。全量 `Ran 420 tests ... OK`；`git diff --check` 退出码 0；`node --check` settings.js、drafts.js 通过。
+- 对比脚本 `scripts/compare_readability.py` 已更新（未运行）：`--example 种子范文 [--generate-card] --yes`，输出每篇改前/改后、调用次数和每次输入字数。
+- 风险/需人工：①真实效果未验证（需授权：风格卡生成 1 次 + 三篇各约 2～4 次调用）；②强度词表与官方域名判断是规则，可能漏判或误判（如 .org 官方机构）；③风格改写严格要求数字集合不变，改写合并重复数字时会被拒（宁可不采用）；④旧任务快照中的 style_card 为空时使用当前设置的风格卡。
+
+## T-027 - 2026-10-26 - 补记（Claude 据 git diff 与文件时间整理，非执行者本人记录）
+
+- 说明：T-027 状态仍为 in-progress，执行方未写交接；人工告知“Codex 把前端改了”，以下由 Claude 只读核对后补记，内容以 diff 为准，执行者确认后请修正。
+- 修改的文件：`wewriter/web/common.js`（导航加 SVG 图标；外观只保留浅色/深色两档，旧的“system”按系统颜色换算；移除内联的外观切换样式）；`workbench.html`、`workbench.js`（工作台改版：绿色主卡与猫插画、紫色“本次稿件”卡、任务进度条、可折叠历史任务；保留 T-026 的“已生成 N/目标 · 已审核通过 M”）；`accounts.html`、`articles.html`、`drafts.html`、`settings.html`（接入共享外壳：品牌区“W”标志与“内容创作工作室”、引入共享样式表、首屏主题脚本只取浅/深，移除 Google 字体）；`articles.js`（文章列表改为书架样式，书脊点击“抽出”后打开详情——超出原登记的“不改四页业务 JS”）。
+- 新增：`wewriter/web/styles/tokens.css`、`base.css`、`components.css`、`styles/pages/{workbench,accounts,articles,drafts,settings}.css`；`wewriter/web/assets/cat/` 6 张猫图；`tests/test_ui_shell.py`（3 项）。原登记的 `tests/test_workbench_ui.py` 未见。
+- 与 Claude 各任务的兼容：T-025（补跑二审反馈）、T-026（历史行文案）、T-029（设置页“写作风格”区块、稿件页“设为范文/反例”）在新界面中均存在并正常显示，浅/深两档截图见 `.local-data/ui-check/`；全量测试通过。工作台历史提示语“只有人工审核通过的稿件计入合格”已由 T-030 按人工指示改为“已审核通过：你在稿件库点了审核通过的篇数”。
+- 打包：`WeWriter.spec` 打包整个 `wewriter/web`，新增样式与图片会进入构建。
+
+## T-030 - 2026-10-26 - Claude（不出现其他公众号的铁律；请 Codex 只读审查）
+
+- 来源：人工“文章里千万不要提到别的公众号（这个是铁律）因为客户也是做公众号的你提到别的公众号就是暴露了在抄袭”，截图反例为“有公众号‘咨询日记’在一篇题为《15亿补贴，这类咨询服务项目已经开始了！》……”；同时要求改工作台“合格”提示、补记 T-027、改完打新包。
+- 新模块 `wewriter/anonymity.py`：`block_list`（数据库全部公众号名称、来源公众号名、作者（如有）、微信来源文章标题，含联网搜到的微信文章）；`hits`（名称、完整标题或 ≥10 字连续片段、通用说法“公众号/推文/原文作者/原文称…/据某号/小编/这篇原文”；“文件原文”“《……行动方案》”等不算）；`scrub`（先去掉“在一篇题为《…》的文章中”与被封标题，再把命中句的出处部分改为“有行业消息称，……”，仍不行则删句；数字和来源标记保留）；`RULE` 提示文字。
+- 提示词：写作 `WRITER_RULES`、事实审核、风格审核 `STYLE_REVIEW_RULES`、查证修订均加入铁律。写作输入的来源列表对公众号原文和微信网页不再给标题和账号名（`public_source`），事实清单 reported 的出处写成“行业资料（转述，非官方…）”。
+- 程序校验（`api._finish_draft`，标题+大纲+正文）：命中即 validation 错误。写作第一次命中→带反馈重写一次；第二次仍命中→程序 `scrub`（标题命中不擦除，直接失败，不会保存）；事实审核命中→定向重写一次，仍命中→弃用修改稿保留干净初稿；风格改写、查证修订命中→不采用。保存前 `composition.leak_guard` 最终扫描（标题命中则任务失败，正文残留再擦除），素材报告新增“## 来源保密检查”（内部资料，可写来源名）。补跑二审同样经过 `leak_guard`。
+- 导出与复制：`ui.export_document` 的“参考资料网站”只列非微信网站（排除 S 来源与 mp.weixin.qq.com），复制全文同源；`webapp.dr_copy`、`dr_export`（发布稿）导出前扫描，命中即阻止并提示“稿件中出现了其他公众号名称，导出前请修改或点补跑二审”；素材报告导出不受限（内部）。`dr_get` 返回 leaks，稿件页红色提示同上文案。
+- 工作台：`workbench.html` 历史提示改为“每页 5 条 · 已审核通过：你在稿件库点了审核通过的篇数”。
+- 测试：新增 `tests/test_no_other_accounts.py` 10 项（黑名单与通用说法、文件原文不误判、擦除保留事实与文件名、各步提示含铁律、写作输入不含账号名与标题、写作重写后兜底擦除、标题命中不保存、事实审核命中弃用、保存前扫描与报告、导出/复制不含微信链接、旧稿提示与阻止复制导出、修改后恢复）。随规则调整：`test_delivery_reliability.py` 假写作模型不再用原文标题当稿件标题；`test_export.py`、`test_t010.py` 导出断言改为不含微信链接；`test_style_card.py` 事实清单出处断言。全量结果见下方 BUILD-007 记录。
+- 风险：作者名目前采集数据中没有，黑名单暂不含作者；“公众号”一词一律禁止，若某篇稿件主题本身是“政务公众号”等会被误判（会触发重写或改写）；已有旧稿不会自动修改，只会提示并阻止导出，需人工修改或补跑二审。
+
+## T-031 - 2026-10-26 - Claude（DeepSeek 二审失败排查；请 Codex 只读审查）
+
+- 证据（数据库只读副本，用完删除；日志）：当前写作与二审均为 deepseek / deepseek-v4-pro（摘要也是 deepseek-v4-pro）。13 篇稿件中二审失败 4 篇：稿件 1、2、4（10-25，OpenAI gpt-5.6-terra）原因是“修改稿未同时引用原文和联网来源”，属 T-013 期已修复的旧问题；稿件 13（10-27 00:17，DeepSeek）任务内及 03:18、03:20 两次补跑均为“二审未返回有效的逐句核对，已保留初稿”。没有截断（finish_reason=length）、超时、JSON 解析或流式错误记录。
+- 根因：逐句核对清单只要有一条字段不合规（如 verdict 写成“保留（未改动）”、保留项 note 缺失或 null、删除项 final_sentence 为 null），整次二审直接失败且不触发定向重写；T-022 把清单改为五字段后对格式更敏感，DeepSeek 在这类严格 JSON 字段上比此前的 OpenAI 模型更易出偏差（推断：当时未记录模型原始输出，无法逐字证实具体哪个字段）。与 DeepSeek 的 response_format 支持、reasoning_content（已关闭 thinking）无关的证据：错误不是“JSON 无效/响应结构不兼容”。
+- 修复（不放松事实核对）：`_verdict` 去掉括号说明识别四种处理方式；保留项 note 缺失/null 视为空；删除项 final_sentence、新增项 draft_sentence 为 null 视为空；evidence 缺失仍判无效。无效条目被丢弃并在质量说明记“逐句核对有 N 条格式无效，已忽略”，但 T-022 覆盖校验照常要求所有改动句被列入；全部无效时改为 kind=validation，带“第 n 条：原因”反馈定向重写一次，仍无效才弃用修改稿。提示词补“五个字段都写字符串、不用 null，verdict 只写四个词之一”。日志 `二审逐句核对有 x/y 条格式无效：…` 只记字段原因，不记正文。
+- 测试：`test_article_quality.py` 原“无效清单即刻失败”改为“带原因重写一次后弃用”（11 种无效形态），新增 2 项（保留项省略 note 与带括号 verdict 可接受；无效条目在其余条目覆盖改动时被丢弃）。全量 `Ran 432 tests ... OK`；`git diff --check` 退出码 0。
+- 建议/需人工：用新包对稿件 13 点“补跑二审”验证；若 DeepSeek 仍常因格式失败，可考虑把二审单独换成 OpenAI（需用户在设置里决定，本次未改配置）。12000 token 输出上限未见触发。
+
+## BUILD-007 - 2026-10-26 - Claude（含进行中的 T-027 界面改动、T-029、T-030、T-031）
+
+- 人工“改完打个新包”。构建前确认无 WeWriter.exe 进程。构建前 dist 中的 zip 为 03:13 生成、76,987,996 字节、未在 TASKS 登记的一次重建（推测他人所做），备份为 `.local-data/package-backup/WeWriter-v0.10.4-Windows-before-BUILD-007-(03-13-unregistered).zip`。`scripts\build.ps1`（未签名）退出码 0，日志 `.local-data/build-007.log`。未提交、推送，未改版本号。
+- 源码：HEAD a6e0b53 + 未提交改动，build_id `0.10.4+ga6e0b53.dirty`，built_at 2026-10-27T00:39:39+08:00；**包含进行中的 T-027 界面改动**（新外壳、工作台、书架式文章库、猫图），以及 T-013、T-017～T-031。
+- 产物：`dist/WeWriter-v0.10.4-Windows.zip` 75,968,508 字节，SHA256 `1955CC56946DAB215952497F3E4B5825DC1AE6EB53DC9D24CAFCDB3DC5BAB59F`；`dist/v0.10.4/WeWriter.exe` 76,567,245 字节，SHA256 `1954ED62901E37BBDDED55838B1B682AEF9AE4EDA2CEB87551AF2B791D01F638`（体积增加约 8 MB，主要是新增猫图）。ZIP 内 WeWriter.exe、install.ps1、README.md、build-info.json。
+- 校验：包校验“[通过] 发布包内容一致（含未提交改动）”；打包后 smoke 退出码 0，`ok: true`，六个页面通过。全量测试 432 项 OK（构建前）。
+- 警告：未签名；PyInstaller 常规提示。数据库升级到 v6（新增范文库表）。
+- 需人工验证：真实 DeepSeek 下二审是否恢复（建议对稿件 13 补跑二审）；新稿是否无其他公众号；导出参考资料不含微信链接；设置页范文库与风格卡；新界面整体观感。
+
+## T-032 - 2026-10-27 - Claude（T-029 写作来源标记失败；请 Codex 只读审查）
+
+- 付费对比（人工批准）：风格卡生成 1 次成功（`.local-data/style-compare/style_card.json`）；稿件 10 写作 2 次均被拒（正文缺少来源标记或包含无效来源），按“失败如实汇报，不重复花费”停止，稿件 11、12 未跑。共 3 次调用。
+- 原因（推测，未拿到被拒正文）：T-029 的事实表 `facts` 每条有 `id: F1…`，模型把 [F#] 当来源标记写进正文；BUILD-007 含同样写作逻辑，正式任务也可能在写作阶段失败。
+- 修复：`style.fact_sheet` 每条加 `cite`；新增 `style.cite_facts` 在 `_write_once` 返回后把 [F#] 换成对应来源标记；写作提示词改为“原样写上 cite，F 编号不能写进正文”；`_finish_draft` 来源错误列出无效编号，便于重写反馈和日志定位。
+- 验证：`python -m unittest discover -s tests -t tests` 435 OK；`git diff --check` 通过。新增 `FactCitationTest` 3 项。
+- 另见：生成的风格卡自相矛盾——title 规则举例“缺一样直接驳回”，taboos 又禁止这句；`valid_style_card` 未检查这类冲突。
+- 需人工：批准是否重跑对比（约 3 篇 × 3～4 次调用）及是否重新打包（BUILD-008）。
+- 追加（协调者 2026-10-27 简报第 1 步）：`style.clean_style_card` 用范文“不要学”、卡内 taboos 和 bad 示例中带引号的说法检查 reader～ending 字段里的引号举例和 examples.good，命中即删；示例全删则视为无效卡、不保存。匹配为去标点后的连续子串（“……”分段全部出现才算），换了说法的改写不会被识别。`Model.style_card` 生成后自动清理，提示词同步要求。已存风格卡用程序清理（无调用）存为 `.local-data/style-compare/style_card_cleaned.json`，只删了标题规则里的“缺一样直接驳回”。
+- 对比脚本：`--card <json>` 复用风格卡；任一篇失败即停，并把被拒的原始输出写入 `<out>/draft-N-failed.json`。
+- 未执行：简报第 2～4 步（付费重跑、BUILD-008）。人工此前要求“调用失败就如实汇报，不要重复花费”，重跑等人工本人确认。全量 437 OK。
+- 2026-10-27 人工“同意重跑”：只跑稿件 10，复用清理后的风格卡。写作 1 次成功（T-032 来源标记修复生效，正文只用 [S15][W1]）；事实二审 2 次均未通过程序校验（claim_checks 的 final_sentence 不是修订稿原句，抄成了初稿或改写前的说法；改动句漏列）。共 3 次调用，按计划停止，11、12 未跑，未打 BUILD-008。原始输出：`.local-data/readability-compare/v2/draft-10-failed.json`，初稿全文：`draft-10-first-draft.md`。正式软件中同样情况会保留初稿并提示“AI 二审未完成”，不会丢稿。
+- 初稿本地指标（无调用）：标题 26 字（超 22 字）、平均句长 29、长句占比 0.19、单句段占比 0.47、禁用词“口径”“不是……而是……”、开头第一段带“有材料称”。
+
+## T-033 - 2026-10-27 - Claude（二审改为程序编号、模型只答依据；请 Codex 只读审查）
+
+- 起因：稿件 10 重跑时 DeepSeek 两次把逐句核对表的 final_sentence 抄成初稿说法，整篇修订被弃用。
+- `Model.review`：第 1 步只要修订稿（模型若仍附 claim_checks 则忽略）；`changed_sentences` 用 difflib 对齐初稿/修订稿句子，改动按顺序编号 C1…（标题在前），每个改动配同一段中最相似的初稿句（相似度低于 0.3 且数量一致时按位置），其余删除句编号 D1…；`_settle_changes` 第 2 步小调用只发编号句和事实清单，`basis_problem` 校验；第 3 步只对问题句定向修改一次；仍不合格回退（`replace_sentence`，空掉的列表项/小标题一并去掉），再过一遍 `_finish_draft`。
+- 未合并成一次调用：模型在同一次输出里无法预知程序的编号，按协调者“优先可靠的两步方案”。
+- 未改：`revise_for_verification`（查证修订）仍要求模型写 claim_checks，旧校验保留。
+- 离线回放：`draft-10-failed.json` 两份修订稿分别得到 4 处改动 + 1 处删除、4 处改动；客户内容不入仓库，所以测试用虚构的同结构文本（`ProgramNumberingTest`）。
+- 2026-10-27 重跑（人工决策卡授权）：稿件 10、11、12 全部成功，复用清理后的风格卡。调用：稿件 10 共 3 次（写作、二审、风格审核；二审无改动，未发依据调用）、稿件 11 共 3 次（同上）、稿件 12 共 4 次（写作、二审、依据 1 次、风格审核；依据全部有效，无定向修改）。合计 10 次；本轮对比累计 16 次（含此前失败的 6 次）。结果在 `.local-data/readability-compare/v2/`。
+- 风格审核：三篇都触发（参考信号都有命中）。稿件 10、11 各维度 ≥3 分未改写；稿件 12 标题 2 分，改写后事实签名一致，已采用。
+- 对比后发现：稿件 11 正文残留 `[F12]`（写作时模型写了不存在的事实编号，原 cite_facts 只换已知编号，来源校验只看 [S]/[W]）。已修：未知 F 编号直接去掉，`_finish_draft` 兜底删除任何 [F数字]，重复标记合并；新增测试 1 项。对比文件生成于修复前，未重跑。
+- 需人工核对：稿件 11 写“2025年，生态环境部等四部门印发了《美丽河湖保护与建设行动方案（2025—2027年）》[W1]”，改前版本写的是“七部门”，程序无法判断哪个对。
+
+## BUILD-008 - 2026-10-27 - Claude（含 T-032、T-033 与 [F#] 残留修复）
+
+- 构建前确认无 WeWriter.exe 进程；BUILD-007 zip 哈希核对一致后备份为 `.local-data/package-backup/WeWriter-v0.10.4-Windows-BUILD-007.zip`。`scripts\build.ps1`（未签名）退出码 0，日志 `.local-data/build-008.log`。未提交、推送，未改版本号。
+- 源码：HEAD a6e0b53 + 未提交改动，build_id `0.10.4+ga6e0b53.dirty`，built_at 2026-10-27T09:14:44+08:00。
+- 产物：`dist/WeWriter-v0.10.4-Windows.zip` 75,978,688 字节，SHA256 `9AAB06D5DEE8DB269EB800781E1B37FDDF6E9887FDB539CDC51B6F26A4A86E66`；`dist/v0.10.4/WeWriter.exe` 76,576,914 字节，SHA256 `47EDCC34910BF3863EB167D49031374FE2E9257344B1CC517315F89B3E0F3701`。
+- 校验：包校验“[通过] 发布包：包 v0.10.4 内容一致（含未提交改动）”；打包后 smoke（`--demo --data-dir .local-data\build008-demo`）退出码 0，`ok: true`，六个页面通过；全量测试 437 项 OK（构建前）。
+- 警告：未签名（Smart App Control 会拦截，交付客户需 -Sign）。
+- 需人工验证：真实任务中二审是否不再整篇弃用、素材报告“初稿 → 修订稿”表是否正常；新稿是否不再出现 [F数字]。
+
+# T-047 — 2026-10-27 — Codex（DeepSeek 默认、GPT/百炼备选及按模型计费）
+
+- 人工要求：主力使用 DeepSeek 原生联网搜索和文本生成；GPT、阿里云百炼作为备选；列明官方基础费率，按不同模型准确记录费用。旧 REQUIREMENTS/PLAN 顶部 T-007 只读约束与本轮明确实施指令冲突，以人工本轮要求为准。开始前已检查 Git 状态，保留所有先前未提交改动。任务所有权在实现前登记到 TASKS.md。
+- 配置与调用：`wewriter/config.py`、`db.py`、`engine.py`、`research.py`、`pipeline/research.py`、`pipeline/composition.py`、`pipeline/materials.py`、`api.py`、`webapp.py`、`ui.py`、`web/settings.html`、`web/settings.js` 已修改。新任务默认 DeepSeek Search + `deepseek-flash` 摘要/写作。旧运行任务的快照继续按原 OpenAI 搜索；当前旧设置首次读取转为 DeepSeek 默认。OpenAI 与百炼为设置页手动选择，不会静默自动切换付费服务。DeepSeek 走官方 `/v1/tools/search`，最多主题和关键标识两次查询；自动查证一次查询并请求网页正文。只接受有效网页链接并给资料附 [W] 来源，空结果拒绝使用模型记忆。百炼 `qwen3.8-flash` 走 OpenAI 兼容 Responses，并要求可核查引用；缺引用拒绝使用。摘要模型单独配置，同一家 DeepSeek 可用 Flash 摘要和 Pro 写作；原模型配置相同时保留旧摘要缓存键。
+- 计费：`wewriter/costs.py` 改用 DeepSeek 人民币峰谷价及 2026 年国务院公布的假期区间，原生 Search 仅有结果时计 ¥0.005；百炼北京 Qwen3.8-Flash 输入/缓存/输出及实际 `usage.x_tools.web_search.count` 计 ¥0.004/次；OpenAI 增加 `gpt-6-luna` 费率、长上下文倍数和可确认的缓存写入。未知接口/模型/用量/无法定价的缓存写入继续标记待核对，不把未知作零。金额是估算，美元仍按固定示意汇率，优惠和最终账单由供应商决定。费率与官方链接见 `docs/collab/T047_RATES.md`；金币弹层说明同步更新。
+- 测试与交付：新 `tests/test_search_providers.py` 10 项，更新 `tests/test_t040_safety.py` 以适配 DeepSeek 摘要默认；`README.md` 更新实际配置方法并已装入测试包。专项命令 `python -m unittest discover -s tests -p <pattern> -q` 依次验证 search_providers 10、costs 8、background_research 12、t040_safety 12、providers 6、db_migrations 17、article_quality 31、no_other_accounts 13，均 OK；`node --check` 两个修改过的 JS、Python compileall、`git diff --check` 退出码 0（既有换行警告）；`scripts/verify_delivery.py` 6/6 通过。尝试完整 unittest 与 Playwright UI shell 时浏览器测试未在等待时间内给出结果，已中止，不宣称全量/UI 通过。独立构建 `dist/T047/v0.10.4/WeWriter.exe`，包校验通过；ZIP `dist/T047/WeWriter-v0.10.4-Windows.zip`，SHA-256 `C0216C1AB8FAA3541722B9B7F2E17A8017E2B0960AEA14702AB6FB490F0CB721`。打包后独立 `--demo --data-dir .local-data/t047-demo --smoke-test` 退出码 0，无真实接口调用。包未签名，真实 DS/百炼/GPT 联网响应、界面和费用仍需人工复测。
+- 下一所有者/行动：人工在 T047 独立包中配置 DeepSeek Key，新建任务验证搜索结果、稿件来源与金币明细；再手动切换 GPT、百炼各跑一个小任务，核对供应商账单。不要对已运行旧任务用“继续原任务”判断新默认，旧快照仍按旧服务商执行。2027 年假期、非北京百炼价、供应商优惠或费率变化需更新费率表与代码；不应把估算视作实际账单。

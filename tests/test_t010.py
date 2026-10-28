@@ -180,7 +180,7 @@ class ExportFileTest(unittest.TestCase):
         self.assertIn('标题', text)
         self.assertIn('正文事实。', text)
         self.assertNotRegex(text, r'\[[SW]\d+\]')
-        self.assertIn('原文：https://mp.weixin.qq.com/s/x', text)
+        self.assertNotIn('mp.weixin.qq.com', text)            # iron rule: no WeChat post in exports
         for fmt in ('md', 'txt'):
             content = write_export(self.dir / ('a.' + fmt), fmt, '标题', self.body, self.sources).read_text(
                 encoding='utf-8-sig')

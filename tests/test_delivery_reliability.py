@@ -97,7 +97,7 @@ class Writer:
         if title in type(self).fail_titles:
             raise ApiError('simulated write failure ' + LEAKY)
         type(self).written.append(title)
-        return {'title': title + '稿', 'outline': ['要点'], 'review_notes': [],
+        return {'title': '新稿' + str(len(type(self).written)), 'outline': ['要点'], 'review_notes': [],
                 'body': '正文' + ''.join(f"[{s['source_id']}]" for s in sources)}
 
     def review(self, draft, sources, config):
@@ -272,7 +272,7 @@ class HistoricalCleanupTest(Base):
         path = self.path / 'legacy.sqlite'
         leaky_v3_database(path)
         db = Database(path)
-        self.assertEqual(SCHEMA_VERSION, 4)
+        self.assertEqual(SCHEMA_VERSION, 6)
         job = db.rows('SELECT * FROM jobs')[0]
         for field in ('message', 'warnings', 'funnel'):
             self.assert_clean(job[field])
@@ -539,7 +539,8 @@ class BatchWarningTest(Base):
     def test_warnings_from_several_stages_are_reported_together(self):
         Writer.review_fails = True
         engine = self.engine(make_source(self.listing(2)), research=NetworkResearch)
-        self.assertEqual(engine.run('batch-c6', self.batch_config(per_account_limit=2)), '已完成')
+        self.assertEqual(engine.run('batch-c6', self.batch_config(per_account_limit=2,
+                                                                 draft_first_mode=False)), '已完成')
         job = self.job('batch-c6')
         warnings = json.loads(job['warnings'])
         for prefix in ('采集：', '联网降级：', '质量提示：'):

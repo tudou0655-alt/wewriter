@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <script>/* Theme before first paint, so a forced light/dark choice never flashes the other one. */
-try { var t = sessionStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
+try { var t = sessionStorage.getItem('theme'); document.documentElement.dataset.theme = t === 'dark' ? 'dark' : t === 'light' ? 'light' : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) {}</script>
 <style>
 /* Page changes cross-fade instead of blanking; the sidebar is matched so it stays put. */
 @view-transition { navigation: auto; }
@@ -15,8 +15,6 @@ try { var t = sessionStorage.getItem('theme'); if (t === 'light' || t === 'dark'
 @media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
 </style>
 <title>WeWriter 工作台</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap" media="print" onload="this.media='all'">
 <style>
 /* Layout: fixed left rail + one reading column; the task pipeline is the one bold element. */
 :root {
@@ -90,15 +88,8 @@ h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacin
 .seg button { all: unset; cursor: pointer; padding: 7px 14px; border-right: 1px solid var(--rule); color: var(--ink-2); }
 .seg button:last-child { border-right: 0; }
 .seg button[aria-pressed="true"] { background: var(--jade-soft); color: var(--jade); font-weight: 700; }
-.seg.closed { border-color: var(--jade); }
-.seg.closed button[aria-pressed="false"] { display: none; }
-.seg.closed button[aria-pressed="true"] { font-size: 18px; padding: 6px 18px; display: inline-flex; align-items: center; border-right: 0; }
 .seg button { text-align: center; justify-content: center; }
 .count button { box-sizing: content-box; width: 1.4em; }
-.count.closed button[aria-pressed="true"] { width: 2.2em; padding: 6px 12px; }
-.seg.closed:hover { box-shadow: 0 0 0 3px var(--jade-soft); }
-.seg:not(.closed) button { animation: pop .16s ease-out; }
-@keyframes pop { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
 .seg button:focus-visible { outline-offset: -2px; }
 .count button { min-width: 18px; text-align: center; font-variant-numeric: tabular-nums; }
 .scope { color: var(--ink-2); font-size: 13px; padding-bottom: 8px; }
@@ -214,16 +205,20 @@ h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacin
   .summary { font-size: 20px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .seg:not(.closed) button { animation: none; }
   .pipe li.now .bar::after { animation: none; width: 100%; opacity: .5; }
   .shine, .drafts li.pending .t { animation: none; color: var(--jade); background: none; }
   .chip.run::after, .drafts li.pending::after { animation: none; display: none; }
 }
 </style>
 
+<link rel="stylesheet" href="styles/tokens.css">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/components.css">
+<link rel="stylesheet" href="styles/pages/workbench.css">
+<link rel="stylesheet" href="styles/pages/costs.css">
 <div class="app">
   <aside class="rail">
-    <div class="brand"><b>WeWriter</b><span>公众号内容工作台</span></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true">W</span><div class="brand-copy"><b>WeWriter</b><span>内容创作工作室</span></div></div>
     <nav class="nav" aria-label="页面" id="nav"></nav>
     <div class="foot" id="foot"></div>
   </aside>
@@ -231,47 +226,54 @@ h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacin
   <main>
     <div class="wrap">
       <div class="top">
-        <h1>工作台</h1>
-        <div class="today"><span id="clock"></span> 中国时间</div>
+        <div><span class="wb-eyebrow">WORKSPACE / 工作台</span><h1>今天，让内容更进一步。</h1></div>
+        <div class="today wb-time-card">
+          <span class="wb-time-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg></span>
+          <span class="wb-time-copy"><span class="wb-time-label">中国时间</span><span class="wb-time-row"><strong id="clock"></strong><span id="clock-date"></span></span></span>
+        </div>
       </div>
 
-      <section class="panel" aria-labelledby="new-h">
-        <div class="panel-head"><h2 id="new-h">新建任务</h2></div>
-        <div class="new">
-          <div class="field"><span id="range-l">文章范围</span>
-            <div class="seg closed" role="group" aria-labelledby="range-l" id="range">
-              <button aria-pressed="true" data-v="今天">今天</button>
-              <button aria-pressed="false" data-v="近 24 小时">近 24 小时</button>
-              <button aria-pressed="false" data-v="近 3 天">近 3 天</button>
+      <div class="wb-top-grid">
+        <section class="wb-hero" aria-labelledby="hero-h">
+          <span class="wb-star wb-star-a" aria-hidden="true">✦</span>
+          <span class="wb-star wb-star-b" aria-hidden="true">✦</span>
+          <div class="wb-hero-copy">
+            <span class="wb-eyebrow">MAKE IT COUNT ✶</span>
+            <h2 id="hero-h">把灵感，写成<br>有分量的内容。</h2>
+            <p>需要新素材时采集；想写文章时直接使用已保存的素材。</p>
+            <div class="wb-hero-buttons"><button class="btn wb-hero-action" id="collect-open" type="button">采集素材 ↗</button><button class="btn wb-hero-action wb-hero-write" id="write-open" type="button">生成文章 ↗</button></div>
+          </div>
+          <div class="wb-cat-area">
+            <div class="wb-cat-bubble"><span>当前任务</span><strong id="hero-status">正在读取状态…</strong></div>
+            <div class="wb-cat-stack" id="cat-stack" data-phase="idle">
+              <img class="active" data-cat="idle" src="assets/cat/wewriter-cat-lime-peach.png" alt="小猫握着铅笔">
+              <img data-cat="search" src="assets/cat/wewriter-cat-search.png" alt="小猫在电脑前搜索">
+              <img data-cat="writing" src="assets/cat/wewriter-cat-writing.png" alt="小猫在便签上写字">
+              <img data-cat="review" src="assets/cat/wewriter-cat-review.png" alt="小猫拿放大镜审查文章">
+              <img data-cat="awaiting" src="assets/cat/wewriter-cat-awaiting-review.png" alt="小猫递来稿件">
+              <img data-cat="failed" src="assets/cat/wewriter-cat-failed.png" alt="小猫难过地流泪">
             </div>
           </div>
-          <div class="field"><span id="count-l">生成篇数</span>
-            <div class="seg count closed" role="group" aria-labelledby="count-l" id="count">
-              <button aria-pressed="false" data-v="1">1</button>
-              <button aria-pressed="true" data-v="2">2</button>
-              <button aria-pressed="false" data-v="3">3</button>
-              <button aria-pressed="false" data-v="4">4</button>
-              <button aria-pressed="false" data-v="5">5</button>
-            </div>
-          </div>
-          <div class="scope" id="scope"></div>
-          <button class="btn primary" id="start">开始任务</button>
-          <div class="queue" id="queue" hidden></div>
-        </div>
-      </section>
+        </section>
 
-      <section class="panel" aria-labelledby="cur-h" id="curpanel">
+        <section class="panel wb-drafts" aria-labelledby="dr-h">
+          <div class="panel-head"><div><span class="wb-eyebrow">THIS RUN / 本次产出</span><h2 id="dr-h">本次稿件</h2></div><span class="meta" id="passed"></span></div>
+          <ol class="drafts" id="drafts"><li class="empty">正在读取本次稿件…</li></ol>
+        </section>
+      </div>
+
+      <section class="panel wb-task-panel" aria-labelledby="cur-h" id="curpanel">
         <div class="panel-head">
-          <h2 id="cur-h">当前任务</h2>
+          <div><span class="wb-eyebrow">RIGHT NOW / 任务状态</span><h2 id="cur-h">任务进度</h2></div>
           <span class="chip" id="state" hidden></span>
         </div>
-        <p class="summary" id="summary"></p>
-        <div class="meta" id="meta"></div>
+        <p class="summary" id="summary">正在读取任务…</p>
+        <div class="meta" id="meta">请稍候</div>
         <ol class="pipe" id="pipe" aria-label="任务进度"></ol>
         <div class="live" id="live" aria-live="polite"></div>
         <div class="actions">
-          <button class="btn" id="detail">查看详情</button>
-          <button class="btn danger" id="stop">停止任务</button>
+          <button class="btn" id="detail" hidden>查看详情</button>
+          <button class="btn danger" id="stop" hidden>停止任务</button>
           <button class="btn quiet" id="cancelq" hidden>取消排队</button>
         </div>
         <div class="confirm" id="confirm" hidden>
@@ -281,12 +283,7 @@ h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacin
         </div>
       </section>
 
-      <section class="panel" aria-labelledby="dr-h">
-        <div class="panel-head"><h2 id="dr-h">本次稿件</h2><span class="meta" id="passed"></span></div>
-        <ol class="drafts" id="drafts"></ol>
-      </section>
-
-      <section class="panel" aria-labelledby="hi-h">
+      <section class="panel wb-history-panel" aria-labelledby="hi-h">
         <div class="panel-head">
           <h2 id="hi-h">历史任务</h2>
           <button class="btn quiet" id="histtoggle" aria-expanded="false" aria-controls="hist">展开</button>
@@ -295,11 +292,36 @@ h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacin
           <div class="scroll-x"><table class="hist"><tbody id="histbody"></tbody></table></div>
           <div class="pager"><span id="pageinfo"></span><div><button class="btn" id="prev">上一页</button><button class="btn" id="next">下一页</button></div></div>
         </div>
-        <div class="note" id="histnote">每页 5 条 · 只有人工审核通过的稿件计入合格</div>
+        <div class="note" id="histnote">每页 5 条 · 已审核通过：你在稿件库点了审核通过的篇数</div>
       </section>
     </div>
   </main>
 </div>
+
+<dialog class="wb-new-dialog" id="new-dialog" aria-labelledby="new-h">
+  <div class="panel-head"><div><span class="wb-eyebrow">NEW TASK / 新任务</span><h2 id="new-h">采集素材</h2></div><button class="btn quiet" id="new-close" type="button">关闭</button></div>
+  <div class="new">
+    <div class="field" id="range-field"><span id="range-l">采集范围</span>
+      <div class="seg" role="group" aria-labelledby="range-l" id="range">
+        <button type="button" aria-pressed="true" data-v="today">今天</button>
+        <button type="button" aria-pressed="false" data-v="24">近 24 小时</button>
+        <button type="button" aria-pressed="false" data-v="72">近 3 天</button>
+      </div>
+    </div>
+    <div class="field" id="count-field" hidden><span id="count-l">生成篇数</span>
+      <div class="seg count" role="group" aria-labelledby="count-l" id="count">
+        <button type="button" aria-pressed="false" data-v="1">1</button>
+        <button type="button" aria-pressed="true" data-v="2">2</button>
+        <button type="button" aria-pressed="false" data-v="3">3</button>
+        <button type="button" aria-pressed="false" data-v="4">4</button>
+        <button type="button" aria-pressed="false" data-v="5">5</button>
+      </div>
+    </div>
+    <div class="scope" id="scope"></div>
+    <div class="note" id="action-hint"></div>
+    <div class="wb-dialog-actions"><button class="btn primary" id="start" type="button">开始采集</button><div class="queue" id="queue" hidden></div></div>
+  </div>
+</dialog>
 
 <aside class="drawer" id="drawer" hidden aria-labelledby="dw-h">
   <div class="panel-head" style="margin-bottom:4px"><h3 id="dw-h">任务详情</h3><button class="btn quiet" id="dw-close">关闭</button></div>
@@ -308,6 +330,14 @@ h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacin
   <div class="choice" id="dw-actions"></div>
 </aside>
 <div class="toast" id="toast" hidden></div>
+<div class="cost-widget" id="cost-widget">
+  <button class="cost-coin" id="cost-coin" type="button" aria-label="查看用量与费用" aria-expanded="false" aria-controls="cost-panel" title="拖动金币可移动；点击查看用量与费用"><span aria-hidden="true">¥</span></button>
+  <section class="cost-panel" id="cost-panel" hidden aria-label="本次任务用量与费用">
+    <div class="cost-head"><strong>用量与费用</strong><button id="cost-close" type="button" aria-label="关闭费用详情">×</button></div>
+    <div id="cost-content" aria-live="polite">尚无任务用量</div>
+  </section>
+</div>
 <script src="common.js"></script>
 <script src="workbench.js"></script>
+<script src="costs.js"></script>
 </html>

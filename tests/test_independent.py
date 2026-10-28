@@ -128,7 +128,7 @@ class IndependentTest(unittest.TestCase):
 
     def test_writer_requires_actual_web_citation(self):
         m = test_core.AdapterTest().model({'title':'标题','body':'正文[S1]','outline':[],'review_notes':[]})
-        cfg = defaults();cfg['writing_mode'] = 'single_web'
+        cfg = defaults();cfg['writing_mode'] = 'single_web';cfg['draft_first_mode'] = False
         with self.assertRaises(ApiError):
             m.write([{'source_id':'S1'},{'source_id':'W1'}],cfg)
 

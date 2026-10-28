@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <script>/* Theme before first paint, so a forced light/dark choice never flashes the other one. */
-try { var t = sessionStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
+try { var t = sessionStorage.getItem('theme'); document.documentElement.dataset.theme = t === 'dark' ? 'dark' : t === 'light' ? 'light' : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) {}</script>
 <style>
 /* Page changes cross-fade instead of blanking; the sidebar is matched so it stays put. */
 @view-transition { navigation: auto; }
@@ -15,8 +15,6 @@ try { var t = sessionStorage.getItem('theme'); if (t === 'light' || t === 'dark'
 @media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
 </style>
 <title>WeWriter 公众号</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap" media="print" onload="this.media='all'">
 <style>
 /* Layout: same rail and column as 工作台; the account list is the page, sync opens above it. */
 :root {
@@ -174,31 +172,37 @@ h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacin
 }
 </style>
 
+<link rel="stylesheet" href="styles/tokens.css">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/components.css">
+<link rel="stylesheet" href="styles/pages/accounts.css">
 <div class="app">
   <aside class="rail">
-    <div class="brand"><b>WeWriter</b><span>公众号内容工作台</span></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true">W</span><div class="brand-copy"><b>WeWriter</b><span>内容创作工作室</span></div></div>
     <nav class="nav" aria-label="页面" id="nav"></nav>
     <div class="foot" id="foot"></div>
   </aside>
 
   <main>
     <div class="wrap">
-      <div class="top">
-        <h1>公众号</h1>
-        <div class="acts">
-          <button class="btn" id="add-open">手动添加</button>
-          <button class="btn primary" id="sync-open">扫码同步书架</button>
+      <section class="accounts-hero" aria-labelledby="accounts-h">
+        <div class="top">
+          <div class="accounts-hero-copy"><span class="acc-eyebrow">YOUR SOURCES / 内容来源</span><h1 id="accounts-h">公众号</h1>
+            <p>采集名单来自<b>微信读书书架</b>里的公众号（不是微信关注列表）。启用、停用和删除从下一个新任务起生效。</p></div>
+          <div class="acts">
+            <button class="btn" id="add-open">手动添加</button>
+            <button class="btn primary" id="sync-open">扫码同步书架</button>
+          </div>
         </div>
-      </div>
-      <div class="note">采集名单来自<b>微信读书书架</b>里的公众号（不是微信关注列表）。启用、停用和删除从下一个新任务起生效。</div>
+      </section>
 
-      <section class="panel sync" id="sync" hidden aria-labelledby="sync-h">
+      <section class="panel sync account-sync-panel" id="sync" hidden aria-labelledby="sync-h">
         <div class="panel-head"><h2 id="sync-h">同步微信读书书架</h2><button class="btn quiet" id="sync-close">关闭</button></div>
         <ol class="stepper" id="stepper"><li><span class="bar"></span>扫码登录</li><li><span class="bar"></span>读取书架</li><li><span class="bar"></span>选择要导入的公众号</li></ol>
         <div id="sync-body"></div>
       </section>
 
-      <section class="panel" id="add" hidden aria-labelledby="add-h">
+      <section class="panel account-add-panel" id="add" hidden aria-labelledby="add-h">
         <div class="panel-head"><h2 id="add-h">手动添加公众号</h2><button class="btn quiet" id="add-close">取消</button></div>
         <form class="form" id="add-form" novalidate>
           <label>公众号名称<input class="input" id="add-name" placeholder="例如：思博产业研究" autocomplete="off"></label>
@@ -208,13 +212,13 @@ h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacin
         </form>
       </section>
 
-      <section class="panel" aria-label="公众号名单">
+      <section class="panel account-list-panel" aria-labelledby="list-h">
+        <div class="acc-list-head"><div><span class="acc-eyebrow">YOUR LIST / 采集名单</span><h2 id="list-h">公众号名单</h2></div><span class="count" id="count"></span></div>
         <div class="tools" style="margin-bottom: 14px">
           <input class="input" id="q" type="search" placeholder="搜索已添加的公众号" aria-label="搜索公众号">
           <div class="filter" role="group" aria-label="筛选" id="filter">
             <button aria-pressed="true" data-v="all">全部</button><button aria-pressed="false" data-v="on">已启用</button><button aria-pressed="false" data-v="off">已停用</button>
           </div>
-          <span class="count" id="count"></span>
         </div>
         <ul class="list" id="list"></ul>
         <div class="pager" id="pager" hidden><span id="pageinfo"></span><div><button class="btn" id="prev">上一页</button><button class="btn" id="next">下一页</button></div></div>

@@ -1,5 +1,12 @@
 // Shared by the five pages: the Python bridge, navigation, toasts and the leave guard.
 const PAGES = [['workbench', '工作台'], ['accounts', '公众号'], ['articles', '文章库'], ['drafts', '稿件库'], ['settings', '设置']];
+const NAV_PATHS = {
+  workbench: '<path d="m3 11 9-8 9 8v10H3z"/><path d="M9 21v-7h6v7"/>',
+  accounts: '<circle cx="12" cy="7" r="3"/><path d="M5 21v-3a7 7 0 0 1 14 0v3"/>',
+  articles: '<path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h6"/>',
+  drafts: '<path d="M6 3h12v18H6zM9 7h6M9 11h6M9 15h4"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2"/>'
+};
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const pad = n => String(n).padStart(2, '0');
@@ -53,7 +60,7 @@ async function go(page) {
 function buildNav(current) {
   const nav = $('nav');
   nav.innerHTML = PAGES.map(([id, label]) =>
-    `<button ${id === current ? 'aria-current="page"' : ''} data-page="${id}">${label}</button>`).join('');
+    `<button type="button" ${id === current ? 'aria-current="page"' : ''} data-page="${id}"><svg viewBox="0 0 24 24" aria-hidden="true">${NAV_PATHS[id]}</svg><span>${label}</span></button>`).join('');
   nav.addEventListener('click', e => { const b = e.target.closest('[data-page]'); if (b && b.dataset.page !== current) go(b.dataset.page); });
   const foot = $('foot');
   if (foot) foot.insertAdjacentHTML('beforebegin', `<div class="theme-box"><span class="theme-label">外观</span>
@@ -71,19 +78,19 @@ function buildNav(current) {
   });
 }
 
-/* Appearance: follow Windows, or force light/dark. Saved by the app (ui.json) and cached per session to avoid a flash. */
+/* The UI offers two themes; an older saved 'system' value resolves to one of them. */
 const ICON = d => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const THEMES = [
   ['light', '浅色', ICON('<circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/>')],
-  ['dark', '深色', ICON('<path d="M13.2 9.6A5.5 5.5 0 0 1 6.4 2.8a5.5 5.5 0 1 0 6.8 6.8z"/>')],
-  ['system', '自动', ICON('<rect x="2" y="3" width="12" height="8.5" rx="1.5"/><path d="M6 14h4M8 11.5V14"/>')]];
-function cachedTheme() { try { return sessionStorage.getItem('theme') || 'system'; } catch (_) { return 'system'; } }
+  ['dark', '深色', ICON('<path d="M13.2 9.6A5.5 5.5 0 0 1 6.4 2.8a5.5 5.5 0 1 0 6.8 6.8z"/>')]];
+function cachedTheme() { try { return sessionStorage.getItem('theme') || 'light'; } catch (_) { return 'light'; } }
 function applyTheme(theme) {
-  if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
-  else delete document.documentElement.dataset.theme;
-  try { sessionStorage.setItem('theme', theme); } catch (_) {}
-  document.querySelectorAll('#theme [data-theme]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.theme === theme)));
-  const box = $('theme'); if (box) box.dataset.v = theme;
+  const chosen = theme === 'dark' ? 'dark' : theme === 'light' ? 'light' :
+    (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.dataset.theme = chosen;
+  try { sessionStorage.setItem('theme', chosen); } catch (_) {}
+  document.querySelectorAll('#theme [data-theme]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.theme === chosen)));
+  const box = $('theme'); if (box) box.dataset.v = chosen;
 }
 
 function elapsedText(s) {
@@ -105,23 +112,6 @@ html, body { margin: 0; }
 @media (min-width: 761px) { .rail { position: sticky; top: 0; height: 100vh; overflow-y: auto; align-self: start; } }
 /* The side tab closes drawers; the old text button stays only as the tab's click target. */
 #dw-close { display: none !important; }
-.rail .theme-box { margin-top: auto; display: grid; gap: 6px; padding: 0 2px; }
-.rail .theme-label { font-size: 11px; letter-spacing: .08em; color: var(--ink-2); padding-left: 8px; }
-.rail .theme { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); padding: 3px; border-radius: 999px;
-  background: var(--ground); border: 1px solid var(--rule); }
-.rail .theme .thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 3); border-radius: 999px;
-  background: var(--sheet); box-shadow: 0 1px 3px rgb(0 0 0 / .18), 0 0 0 1px var(--rule); transition: transform .25s cubic-bezier(.3, .7, .2, 1); }
-.rail .theme[data-v="dark"] .thumb { transform: translateX(100%); }
-.rail .theme[data-v="system"] .thumb { transform: translateX(200%); }
-.rail .theme button { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 4px;
-  border: 0; background: transparent; color: var(--ink-2); font: inherit; font-size: 12px; padding: 5px 0; border-radius: 999px; cursor: pointer; transition: color .2s; }
-.rail .theme button svg { width: 13px; height: 13px; flex: none; }
-.rail .theme button:hover { color: var(--ink); }
-.rail .theme button[aria-checked="true"] { color: var(--jade); font-weight: 600; }
-.rail .theme button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-.rail .theme-box + .foot { margin-top: 12px; }
-@media (prefers-reduced-motion: reduce) { .rail .theme .thumb { transition: none; } }
-@media (max-width: 760px) { .rail .theme-box { margin: 0 0 0 auto; } .rail .theme-label { display: none; } .rail .theme button span { display: none; } .rail .theme button { padding: 5px 9px; } }
 </style>`);
 
 // Side drawers: a collapse tab on the drawer's left edge, always at mid-height, so closing never
@@ -134,13 +124,20 @@ html, body { margin: 0; }
   background: var(--sheet); color: var(--ink-2); border: 1px solid var(--rule); border-right: 0; border-radius: 10px 0 0 10px;
   box-shadow: -6px 0 16px rgb(0 0 0 / .10); cursor: pointer; z-index: 21; padding: 0; }
 .dw-tab:hover, .dw-tab:focus-visible { color: var(--jade); }
+.dw-tab.inside { border: 1px solid var(--rule); border-left: 0; border-radius: 0 10px 10px 0; box-shadow: 6px 0 16px rgb(0 0 0 / .10); }
 .dw-tab svg { width: 14px; height: 14px; }
 </style>`);
   const tab = document.createElement('button');
   tab.className = 'dw-tab'; tab.hidden = true; tab.title = '收起'; tab.setAttribute('aria-label', '收起侧边栏');
   tab.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"/></svg>';
   document.body.appendChild(tab);
-  const place = () => { tab.hidden = drawer.hidden; if (!drawer.hidden) tab.style.right = drawer.offsetWidth + 'px'; };
+  const place = () => {
+    tab.hidden = drawer.hidden;
+    if (drawer.hidden) return;
+    const inside = drawer.offsetWidth + tab.offsetWidth > window.innerWidth;
+    tab.classList.toggle('inside', inside);
+    tab.style.right = (inside ? window.innerWidth - tab.offsetWidth : drawer.offsetWidth) + 'px';
+  };
   new MutationObserver(place).observe(drawer, { attributes: true, attributeFilter: ['hidden'] });
   window.addEventListener('resize', place);
   tab.addEventListener('click', () => { const c = $('dw-close'); if (c) c.click(); else drawer.hidden = true; });

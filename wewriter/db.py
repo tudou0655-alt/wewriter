@@ -127,9 +127,25 @@ def _migrate_v4(db):
             db.execute('UPDATE articles SET error=? WHERE id=?', (redact(row[1]), row[0]))
 
 
+def _migrate_v5(db):
+    # Background web searches started but not yet retrieved (one per task). A retry fetches the
+    # stored response instead of starting, and paying for, a new search.
+    db.execute('''CREATE TABLE IF NOT EXISTS research_pending (
+        job_id INTEGER PRIMARY KEY, response_id TEXT NOT NULL, created_at TEXT NOT NULL)''')
+
+
 # MIGRATIONS[n] upgrades a version n-1 database to version n. Steps must be idempotent,
 # because a database may have been partially upgraded or opened by an older release.
-MIGRATIONS = {2: _migrate_v2, 3: _migrate_v3, 4: _migrate_v4}
+def _migrate_v6(db):
+    # Example articles the customer likes ('good') or dislikes ('bad'); the style card is distilled
+    # from them. skeleton is the short form sent to the writer (title, opening, headings, samples).
+    db.execute('''CREATE TABLE IF NOT EXISTS examples (
+        id INTEGER PRIMARY KEY, kind TEXT NOT NULL DEFAULT 'good', title TEXT NOT NULL, body TEXT NOT NULL,
+        score INTEGER, avoid TEXT NOT NULL DEFAULT '', skeleton TEXT NOT NULL DEFAULT '',
+        origin TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)''')
+
+
+MIGRATIONS = {2: _migrate_v2, 3: _migrate_v3, 4: _migrate_v4, 5: _migrate_v5, 6: _migrate_v6}
 SCHEMA_VERSION = max(MIGRATIONS)
 RESTORE_TABLES = {"accounts", "articles", "jobs", "drafts", "settings", "analyses", "draft_versions"}
 
@@ -207,6 +223,11 @@ class Database:
                 for row in db.execute('SELECT id,sources FROM drafts WHERE id IN (SELECT id FROM cleanup_ids)').fetchall():
                     refs = [{k:s[k] for k in ('article_id','source_id','url') if k in s} for s in json.loads(row['sources']) if 'article_id' in s]
                     db.execute("UPDATE drafts SET body='',report='',sources=?,status='已清理',cleared=1 WHERE id=?", (json.dumps(refs),row['id']))
+                # Stage checkpoints can contain earlier full drafts. Remove
+                # only this draft's job keys; article summaries remain reusable.
+                for job_row in db.execute('SELECT job_id FROM drafts WHERE id IN (SELECT id FROM cleanup_ids)').fetchall():
+                    db.execute('DELETE FROM analyses WHERE cache_key LIKE ?',
+                               (f't040-%:{job_row[0]}:%',))
                 db.execute('DELETE FROM draft_versions WHERE draft_id IN (SELECT id FROM cleanup_ids)')
                 db.execute("UPDATE jobs SET status='已清理',message='稿件已由用户清理，原任务不再生成' WHERE id IN (SELECT job_id FROM drafts WHERE id IN (SELECT id FROM cleanup_ids))")
                 db.execute('DELETE FROM research_cache WHERE job_id IN (SELECT job_id FROM drafts WHERE id IN (SELECT id FROM cleanup_ids))')
@@ -215,7 +236,7 @@ class Database:
 
     def clear_all(self, *, preserve_accounts=False):
         """Remove all business records while preserving settings and external secret files."""
-        tables = ('draft_versions', 'drafts', 'analyses', 'research_cache', 'batch_items',
+        tables = ('draft_versions', 'drafts', 'analyses', 'research_cache', 'research_pending', 'batch_items',
                   'article_images', 'metric_notes', 'article_metric_times',
                   'job_metrics', 'article_metrics', 'source_refs', 'jobs', 'articles', 'accounts')
         if preserve_accounts:
@@ -305,9 +326,13 @@ class Database:
 
     def config(self):
         values = self.rows("SELECT value FROM settings WHERE key='config'")
-        result = defaults()
-        if values:
-            result.update(json.loads(values[0]["value"]))
+        result = json.loads(values[0]["value"]) if values else {}
+        # The old saved OpenAI search is now switched to the requested DeepSeek
+        # default for new jobs. Historical job snapshots still migrate as OpenAI.
+        if values and 'search_provider' not in result:
+            result['search_provider'] = 'deepseek'
+            result['search_model'] = 'deepseek-flash'
+            result['search_url'] = defaults()['search_url']
         return migrate(result)
 
     def save_config(self, value):
@@ -379,6 +404,47 @@ class Database:
                        (title.strip(), body.strip(), status, revision, stamp(), draft_id))
             db.execute("INSERT INTO draft_versions(draft_id,revision,title,body,created_at) VALUES(?,?,?,?,?)",
                        (draft_id, revision, title.strip(), body.strip(), stamp()))
+
+    def add_example(self, title, body, kind='good', score=None, avoid='', origin=''):
+        """Store an example article for the style card; returns its id."""
+        from .style import skeleton
+        title, body = str(title or '').strip(), str(body or '').strip()
+        if not body:
+            raise ValueError('范文正文不能为空')
+        if kind not in ('good', 'bad'):
+            raise ValueError('范文类型只能是范文或反例')
+        if score is not None and (type(score) is not int or not 0 <= score <= 100):
+            raise ValueError('分数请填 0 到 100 的整数')
+        with self.connect() as db:
+            return db.execute('''INSERT INTO examples(kind,title,body,score,avoid,skeleton,origin,created_at)
+                                 VALUES(?,?,?,?,?,?,?,?)''',
+                              (kind, title[:120], body, score, str(avoid or '').strip()[:1000],
+                               skeleton(title, body, avoid), str(origin)[:200], stamp())).lastrowid
+
+    def examples(self):
+        return self.rows('SELECT id,kind,title,body,score,avoid,skeleton,origin,created_at FROM examples ORDER BY id')
+
+    def delete_example(self, example_id):
+        self.execute('DELETE FROM examples WHERE id=?', (int(example_id),))
+
+    def revise_draft(self, draft_id, revision, title, body, report, sources=None):
+        """Save a machine revision (the re-run AI review) as a new version; earlier versions stay.
+
+        Refused when the draft changed since `revision` was read, so a manual edit made while the
+        review was running is never overwritten."""
+        with self.connect() as db:
+            current = db.execute("SELECT revision FROM drafts WHERE id=? AND cleared=0", (draft_id,)).fetchone()
+            if current is None:
+                raise ValueError('稿件不存在或已清理')
+            if current["revision"] != revision:
+                raise ValueError('稿件在二审期间被修改过，二审结果未保存；请重新补跑')
+            db.execute("UPDATE drafts SET title=?,body=?,report=?,status='待审核',revision=?,updated_at=? WHERE id=?",
+                       (title, body, report, revision + 1, stamp(), draft_id))
+            if sources is not None:      # sources the automatic check added
+                db.execute("UPDATE drafts SET sources=? WHERE id=?", (json.dumps(sources, ensure_ascii=False), draft_id))
+            db.execute("INSERT INTO draft_versions(draft_id,revision,title,body,created_at) VALUES(?,?,?,?,?)",
+                       (draft_id, revision + 1, title, body, stamp()))
+        return revision + 1
 
     # Manual review states. '已审核' is the pre-T-010 name of '已通过'.
     REVIEW_STATES = ('待审核', '需修改', '已通过')

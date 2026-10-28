@@ -72,8 +72,11 @@ class Funnel:
         """Start a fresh funnel. A retry that reuses the stored selection keeps the
         collection layers of the attempt that produced it; nothing is accumulated."""
         data = cls.empty()
-        previous = load_funnel(job.get('funnel')) if reuse_collection else None
-        if previous and previous.get('collection'):
+        previous = load_funnel(job.get('funnel'))
+        # Usage belongs to the lifetime of a job, unlike the attempt-scoped funnel.
+        if previous and isinstance(previous.get('cost_events'), list):
+            data['cost_events'] = deepcopy(previous['cost_events'])
+        if reuse_collection and previous and previous.get('collection'):
             data['collection'] = {**previous['collection'], 'reused': True}
             data['counts'].update({k: previous['counts'].get(k, 0) for k in COLLECT_KEYS})
             for key, account in previous['accounts'].items():
@@ -397,6 +400,50 @@ def collect(engine, ctx):
         raise TaskError('没有达到阅读量门槛的文章，或接口未提供阅读量；请查看文章库，调整门槛或时间范围',
                         ErrorCode.CONFIG)
     db.update_job(job["id"], selected=json.dumps(selected))
+    return selected
+
+
+def saved_candidates(db, config):
+    """Rank unconsumed, retained articles already in the local library.
+
+    Listing an account is deliberately absent here. Measured read counts rank first.
+    When the user set no minimum, older articles with unknown counts remain usable
+    after measured articles, rather than making a populated library look empty.
+    """
+    names = {account['name'] for account in db.accounts(enabled=True)}
+    if not names:
+        return []
+    used = used_articles(db)
+    candidates = {}
+    for row in db.rows('''SELECT a.id,a.account_name,a.published_at,m.reads,m.likes
+            FROM articles a LEFT JOIN article_metrics m ON m.article_id=a.id
+            WHERE a.cleared=0'''):
+        if row['account_name'] not in names or row['id'] in used:
+            continue
+        try:
+            published = parse_date(row['published_at'])
+        except (ValueError, TypeError, OverflowError, OSError):
+            continue
+        candidates[row['id']] = {'published': published, 'reads': row['reads'], 'likes': row['likes']}
+    mode, minimum = config.get('selection_mode', 'hot'), config.get('min_reads', 0)
+    ordered = rank(candidates, mode, minimum)
+    if mode == 'hot' and minimum == 0:
+        ordered += sorted((i for i, item in candidates.items() if item['reads'] is None),
+                          key=lambda i: candidates[i]['published'], reverse=True)
+    return ordered
+
+
+def select_saved(engine, ctx):
+    """Freeze a writing queue from saved metadata without calling a list API."""
+    db, job = engine.db, ctx.job
+    selected = saved_candidates(db, ctx.config)
+    for article_id in selected:
+        metric = db.rows('SELECT reads,likes,observed_at FROM article_metrics WHERE article_id=?', (article_id,))
+        if metric:
+            row = metric[0]
+            db.execute('INSERT OR IGNORE INTO job_metrics VALUES(?,?,?,?,?)',
+                       (job['id'], article_id, row['reads'], row['likes'], row['observed_at']))
+    db.update_job(job['id'], selected=json.dumps(selected))
     return selected
 
 

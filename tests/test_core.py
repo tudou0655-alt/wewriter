@@ -81,6 +81,7 @@ class CoreTest(unittest.TestCase):
         self.temp.cleanup()
 
     def test_pipeline_persists_sources_and_prevents_repeat(self):
+        self.config['draft_first_mode'] = False  # exercise the optional automatic-review path
         self.assertEqual(self.engine.run("manual:1", self.config), "已完成")
         draft = self.db.rows("SELECT * FROM drafts")[0]
         self.assertEqual(len(json.loads(draft["sources"])), 2)
@@ -378,7 +379,7 @@ class AdapterTest(unittest.TestCase):
     def test_invalid_citation_rejected(self):
         model = self.model({"title": "标题", "body": "正文[S999]", "outline": [], "review_notes": []})
         with self.assertRaises(ApiError):
-            model.write([{"source_id": "S1"}], defaults())
+            model.write([{"source_id": "S1"}], {**defaults(), 'draft_first_mode': False})
 
     def test_chat_assistant_follow_up_is_removed_from_article(self):
         model = self.model({'title': '标题', 'body':

@@ -1,0 +1,29 @@
+/* WeWriter shared visual tokens — light and dark only. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --ground: #f5f5ed; --sheet: #fffefa; --ink: #20302a; --ink-2: #506058;
+  --rule: #cdd6c9; --jade: #226d59; --jade-soft: #dcebdc;
+  --cinnabar: #a44d35; --cinnabar-soft: #fae5da;
+  --amber: #785524; --amber-soft: #f7ebd5;
+  --focus: #226d59; --glint: #e9fff3; --glint-soft: rgb(255 255 255 / .42);
+  --lime: #d7ef86; --lime-ink: #1a281f; --peach: #ffd0b9;
+  --violet: #e5ddf5; --mint: #d7eae3; --draft-surface: #ded3f4;
+  --draft-row: #c8b3eb; --draft-action: #4a365d; --draft-action-ink: #fff9f2;
+  --font-display: "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  --font-body: "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  --radius: 18px;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #141d1a; --sheet: #202b26; --ink: #f0f3e9; --ink-2: #c2d0c5;
+  --rule: #486052; --jade: #c0dda7; --jade-soft: #304938;
+  --cinnabar: #ffd0b9; --cinnabar-soft: #593e32;
+  --amber: #f1d49f; --amber-soft: #4d3d2c;
+  --focus: #e9a88c; --glint: #f5ffec; --glint-soft: rgb(255 255 255 / .24);
+  --lime: #43592d; --lime-ink: #f2f9de; --peach: #563a34;
+  --violet: #373148; --mint: #24443c; --draft-surface: #433852;
+  --draft-row: #5d4c70; --draft-action: #d8c5eb; --draft-action-ink: #241b2e;
+  --font-display: "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  --font-body: "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  --radius: 18px;
+}

@@ -2,7 +2,7 @@
 de-duplication, and cached per-chunk summaries with bounded retries."""
 import json
 import time
-from ..api import ApiError, Cancelled, digest
+from ..api import ApiError, Cancelled, digest, original_quote
 from ..logs import logger, redact
 from .common import TaskError, error_code
 
@@ -41,7 +41,10 @@ def materials(engine, ctx, selected):
                 n.previous_observed_at FROM job_metrics m LEFT JOIN metric_notes n
                 ON n.job_id=m.job_id AND n.article_id=m.article_id WHERE m.job_id=? AND m.article_id=?''',
                               (ctx.job['id'], article_id))
-            sources.append({"source_id": f"S{article_id}", "article_id": article_id, "title": article["title"],
+            # Source marks are local to one draft. Database article IDs can be sparse (for
+            # example the only selected article is #12); exposing S12 makes the model invent
+            # S1, S2, ... as if those were the materials in this task.
+            sources.append({"source_id": f"S{len(sources) + 1}", "article_id": article_id, "title": article["title"],
                             "url": article["url"], "account_name": article["account_name"],
                             "published_at": article["published_at"], "analysis": parts,
                             "metrics": metrics[0] if metrics else {},
@@ -107,13 +110,52 @@ def summaries(engine, ctx, article, content):
     # Cache each chunk separately so a retry never repeats completed summaries.
     provider = ctx.config["summary_provider"]
     parts = []
+    body_hash = digest(content)
+    current = engine.db.rows('SELECT title,content_hash,cleared FROM articles WHERE id=?',
+                             (article['id'],))
+    can_share = (bool(current) and not current[0]['cleared']
+                 and current[0]['content_hash'] == body_hash
+                 and current[0]['title'] == article.get('title'))
+
+    def reusable(result, chunk):
+        if (not isinstance(result, dict) or not isinstance(result.get('summary'), str)
+                or not result['summary'].strip() or not isinstance(result.get('facts'), list)
+                or not result['facts']
+                or not isinstance(result.get('uncertainties'), list)):
+            return False
+        return (all(isinstance(fact, dict) and isinstance(fact.get('claim'), str)
+                    and fact['claim'].strip() and isinstance(fact.get('quote'), str)
+                    and fact['quote'].strip() and original_quote(fact['quote'], chunk) is not None
+                    for fact in result['facts'])
+                and all(isinstance(item, str) for item in result['uncertainties']))
+
     for start in range(0, len(content), 24000):
         engine.check()
         chunk = content[start:start + 24000]
-        key = digest(json.dumps(["summary-v1", provider, ctx.config["providers"][provider], chunk],
+        model_config = ctx.config['providers'][provider]
+        selected = ctx.config.get('summary_model')
+        if selected and selected != model_config['model']:
+            model_config = {**model_config, 'model': selected}
+        key = digest(json.dumps(["summary-v2-cross-article", provider,
+                                 model_config, article.get('title'), body_hash, start, chunk],
                                 ensure_ascii=False, sort_keys=True))
-        parts.append(ctx.cached(article['id'], key,
-                                lambda: engine._summary_attempts(ctx, article, chunk, start // 24000 + 1)))
+
+        def compute():
+            if can_share:
+                rows = engine.db.rows('''SELECT n.result FROM analyses n JOIN articles a ON a.id=n.article_id
+                    WHERE n.cache_key=? AND n.article_id<>? AND a.cleared=0
+                    AND a.content_hash=? AND a.title=? ORDER BY n.created_at DESC LIMIT 8''',
+                                      (key, article['id'], body_hash, article['title']))
+                for row in rows:
+                    try:
+                        result = json.loads(row['result'])
+                    except (ValueError, TypeError):
+                        continue
+                    if reusable(result, chunk):
+                        return result
+            return engine._summary_attempts(ctx, article, chunk, start // 24000 + 1)
+
+        parts.append(ctx.cached(article['id'], key, compute))
     return parts
 
 
@@ -123,7 +165,7 @@ def summary_attempts(engine, ctx, article, chunk, part):
     previous = getattr(transport, 'retry_attempts', 3)
     transport.retry_attempts = 1  # Avoid multiplying Transport and stage retries.
     provider = ctx.config['summary_provider']
-    model = redact(str(ctx.config['providers'][provider]['model']))
+    model = redact(str(ctx.config.get('summary_model') or ctx.config['providers'][provider]['model']))
     try:
         for attempt in range(1, 4):
             engine.check()

@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <script>/* Theme before first paint, so a forced light/dark choice never flashes the other one. */
-try { var t = sessionStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
+try { var t = sessionStorage.getItem('theme'); document.documentElement.dataset.theme = t === 'dark' ? 'dark' : t === 'light' ? 'light' : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) {}</script>
 <style>
 /* Page changes cross-fade instead of blanking; the sidebar is matched so it stays put. */
 @view-transition { navigation: auto; }
@@ -15,8 +15,6 @@ try { var t = sessionStorage.getItem('theme'); if (t === 'light' || t === 'dark'
 @media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
 </style>
 <title>WeWriter 文章库</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap" media="print" onload="this.media='all'">
 <style>
 /* Layout: same rail and column as 工作台; filters on one line, article rows, a reading panel on the right. */
 :root {
@@ -139,30 +137,40 @@ details dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-n
 }
 </style>
 
+<link rel="stylesheet" href="styles/tokens.css">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/components.css">
+<link rel="stylesheet" href="styles/pages/articles.css">
 <div class="app">
   <aside class="rail">
-    <div class="brand"><b>WeWriter</b><span>公众号内容工作台</span></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true">W</span><div class="brand-copy"><b>WeWriter</b><span>内容创作工作室</span></div></div>
     <nav class="nav" aria-label="页面" id="nav"></nav>
     <div class="foot" id="foot"></div>
   </aside>
 
   <main>
     <div class="wrap">
-      <div class="top"><h1>文章库</h1></div>
-      <div class="note">采集到的公众号文章都在这里。任务会按阅读量从这里选文；“未知”表示采集服务没有返回该数字，不等于 0，排在有数字的文章之后。</div>
+      <section class="articles-intro" aria-labelledby="articles-h">
+        <span class="article-eyebrow">SOURCE LIBRARY / 内容素材</span>
+        <h1 id="articles-h">文章库</h1>
+        <p>采集到的公众号文章都在这里。任务会按阅读量从这里选文；“未知”表示采集服务没有返回该数字，不等于 0，排在有数字的文章之后。</p>
+      </section>
 
-      <div class="filters">
-        <input class="input" id="q" type="search" placeholder="搜索文章标题" aria-label="搜索文章标题">
-        <select class="select" id="acct" aria-label="按公众号筛选"></select>
-        <select class="select" id="range" aria-label="按发布时间筛选">
+      <section class="article-filter-panel" aria-label="筛选文章"><div class="filters">
+        <label class="article-filter-field"><span>搜索标题</span><input class="input" id="q" type="search" placeholder="输入文章关键词" aria-label="搜索文章标题"></label>
+        <label class="article-filter-field"><span>公众号</span><select class="select" id="acct" aria-label="按公众号筛选"></select></label>
+        <label class="article-filter-field"><span>发布时间</span><select class="select" id="range" aria-label="按发布时间筛选">
           <option value="all">全部时间</option><option value="today">今天</option><option value="3">近 3 天</option><option value="7">近 7 天</option>
-        </select>
-        <select class="select" id="sort" aria-label="排序">
+        </select></label>
+        <label class="article-filter-field"><span>排序</span><select class="select" id="sort" aria-label="排序">
           <option value="reads">阅读量优先</option><option value="likes">点赞量优先</option><option value="time">最新发布</option>
-        </select>
-      </div>
-      <div class="meta-row"><span id="total"></span><span>发布时间均为中国时间</span></div>
-      <section class="panel" aria-label="文章列表"><ul class="list" id="list"></ul></section>
+        </select></label>
+      </div></section>
+      <section class="panel article-list-panel" aria-labelledby="list-h">
+        <div class="article-list-head"><div><span class="article-eyebrow">COLLECTED / 已采集</span><h2 id="list-h">采集文章</h2></div><span id="total"></span></div>
+        <div class="article-time-note">发布时间均为中国时间</div>
+        <ul class="list" id="list"></ul>
+      </section>
       <div class="pager" id="pager"><span id="pageinfo"></span><div><button class="btn" id="prev">上一页</button><button class="btn" id="next">下一页</button></div></div>
     </div>
   </main>

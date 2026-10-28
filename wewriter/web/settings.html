@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <script>/* Theme before first paint, so a forced light/dark choice never flashes the other one. */
-try { var t = sessionStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
+try { var t = sessionStorage.getItem('theme'); document.documentElement.dataset.theme = t === 'dark' ? 'dark' : t === 'light' ? 'light' : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) {}</script>
 <style>
 /* Page changes cross-fade instead of blanking; the sidebar is matched so it stays put. */
 @view-transition { navigation: auto; }
@@ -15,8 +15,6 @@ try { var t = sessionStorage.getItem('theme'); if (t === 'light' || t === 'dark'
 @media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
 </style>
 <title>WeWriter 设置</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap" media="print" onload="this.media='all'">
 <style>
 /* Layout: same rail and column; settings grouped in panels, a save bar that appears only with changes. */
 :root {
@@ -139,9 +137,13 @@ details .inner { display: grid; gap: 16px; }
 @media (prefers-reduced-motion: reduce) { .shine { animation: none; color: var(--jade); background: none; } .switch .track, .switch .track::after { transition: none; } }
 </style>
 
+<link rel="stylesheet" href="styles/tokens.css">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/components.css">
+<link rel="stylesheet" href="styles/pages/settings.css">
 <div class="app">
   <aside class="rail">
-    <div class="brand"><b>WeWriter</b><span>公众号内容工作台</span></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true">W</span><div class="brand-copy"><b>WeWriter</b><span>内容创作工作室</span></div></div>
     <nav class="nav" aria-label="页面" id="nav"></nav>
     <div class="foot" id="foot"></div>
   </aside>
@@ -153,7 +155,7 @@ details .inner { display: grid; gap: 16px; }
       <!-- Models -->
       <section class="panel" aria-labelledby="m-h">
         <h2 id="m-h">模型<small>写作、二审、摘要和联网搜索</small></h2>
-        <div class="reco" id="reco"><span>推荐：文档处理用 <b>deepseek-v4-pro</b>，联网搜索用 <b>gpt-5.6-terra</b>（性能与价格均衡；更省钱可选 <b>gpt-6-luna</b>）</span>
+        <div class="reco" id="reco"><span>默认：DeepSeek 原生搜索与写作；OpenAI 和阿里云百炼可在下方切换。</span>
           <button class="btn" id="reco-apply">一键填入推荐</button></div>
         <div class="grid2">
           <div class="field"><label for="writer">写作与二审</label>
@@ -169,8 +171,9 @@ details .inner { display: grid; gap: 16px; }
           <div class="grid2">
             <div class="field"><label for="summary">摘要与分析</label><select class="select" id="summary" data-k="summary"></select>
               <span class="hint">逐篇提取重点和证据，调用次数最多，可选便宜一些的模型</span></div>
-            <div class="field"><label for="search">联网搜索（需要 OpenAI）</label><select class="select" id="search" data-k="search"></select>
-              <span class="hint">使用 OpenAI 的网页搜索，DeepSeek 不提供这项能力</span></div>
+            <div class="field"><label for="search-provider">联网搜索服务</label><select class="select" id="search-provider" data-k="searchprovider"><option value="deepseek">DeepSeek 原生搜索</option><option value="openai">OpenAI 联网搜索</option><option value="bailian">阿里云百炼联网搜索</option></select>
+              <span class="hint">DeepSeek 搜索按成功次数收费；无来源时不会凭模型记忆写作。</span></div>
+            <div class="field"><label for="search">联网搜索模型</label><select class="select" id="search" data-k="search"></select></div>
           </div>
           <div class="grid2">
             <div class="field"><label for="oa-key">OpenAI API Key</label>
@@ -178,12 +181,16 @@ details .inner { display: grid; gap: 16px; }
               <span class="hint bad" id="oa-st">未配置：联网搜索无法使用</span></div>
             <div class="field"><label for="ds-key">DeepSeek API Key</label>
               <div class="with-btn"><input class="input" id="ds-key" type="password" autocomplete="off" placeholder="已配置，留空保留原 Key"><button class="btn" data-reveal="ds-key">显示</button></div>
-              <span class="hint ok">已配置</span></div>
+              <span class="hint" id="ds-st">读取中…</span></div>
           </div>
+          <div class="field"><label for="bl-key">阿里云百炼 API Key</label>
+            <div class="with-btn"><input class="input" id="bl-key" type="password" autocomplete="off" placeholder="未配置"><button class="btn" data-reveal="bl-key">显示</button></div>
+            <span class="hint" id="bl-st">读取中…</span></div>
         </div></details>
         <details><summary>接口地址</summary><div class="inner grid2">
           <div class="field"><label for="oa-url">OpenAI 接口地址</label><input class="input" id="oa-url" data-k="oaurl" value="https://api.openai.com/v1"></div>
           <div class="field"><label for="ds-url">DeepSeek 接口地址</label><input class="input" id="ds-url" data-k="dsurl" value="https://api.deepseek.com"></div>
+          <div class="field"><label for="bl-url">百炼接口地址</label><input class="input" id="bl-url" data-k="blurl" value="https://dashscope.aliyuncs.com/compatible-mode/v1"></div>
         </div></details>
       </section>
 
@@ -193,10 +200,10 @@ details .inner { display: grid; gap: 16px; }
         <div class="grid2">
           <div class="field"><label for="djl-key">极致了 Key（优先使用）</label>
             <div class="with-btn"><input class="input" id="djl-key" type="password" autocomplete="off" placeholder="已配置，留空保留原 Key"><button class="btn" data-reveal="djl-key">显示</button></div>
-            <span class="hint ok">已配置 · 每次约 0.14 元</span></div>
+            <span class="hint" id="djl-st">读取中…</span></div>
           <div class="field"><label for="ei-key">EveryInfra Key（备用）</label>
             <div class="with-btn"><input class="input" id="ei-key" type="password" autocomplete="off" placeholder="已配置，留空保留原 Key"><button class="btn" data-reveal="ei-key">显示</button></div>
-            <span class="hint ok">已配置 · 极致了失败时才使用</span></div>
+            <span class="hint" id="ei-st">读取中…</span></div>
         </div>
       </section>
 
@@ -248,9 +255,11 @@ details .inner { display: grid; gap: 16px; }
       <section class="panel" aria-labelledby="x-h">
         <details><summary id="x-h">更多设置与维护</summary><div class="inner">
           <div>
-            <div class="toggle-row"><div><b>每日自动采集和生成</b><div class="hint">中国时间每天定时运行；电脑需开机联网</div></div>
+            <div class="toggle-row"><div><b>每日自动生成文章</b><div class="hint">中国时间每天从已保存素材中选文；不会自动重新采集，电脑需开机联网</div></div>
               <div style="display: flex; gap: 10px; align-items: center"><input class="input" id="sched-time" data-k="schedtime" value="09:00" style="width: 90px" aria-label="执行时间"><button class="switch" role="switch" aria-checked="false" data-sw="sched"><span class="track"></span></button></div></div>
-            <div class="toggle-row"><div><b>生成后 AI 二审</b><div class="hint">对照原文复核事实和表达；每篇多一次写作模型调用</div></div><button class="switch" role="switch" aria-checked="true" data-sw="review"><span class="track"></span></button></div>
+            <div class="toggle-row"><div><b>优先生成草稿</b><div class="hint">默认开启：先保存可修改草稿，暂不运行自动二审、查证和风格改写；篇幅或引用不足会标明待处理</div></div><button class="switch" role="switch" aria-checked="true" data-sw="draftfirst"><span class="track"></span></button></div>
+            <div class="toggle-row"><div><b>生成后 AI 二审</b><div class="hint">关闭“优先生成草稿”后才执行；每篇增加模型调用</div></div><button class="switch" role="switch" aria-checked="true" data-sw="review"><span class="track"></span></button></div>
+            <div class="toggle-row"><div><b>二审后自动查证存疑事实</b><div class="hint">关闭“优先生成草稿”且开启二审后才执行；可能增加搜索与模型费用</div></div><button class="switch" role="switch" aria-checked="true" data-sw="verify"><span class="track"></span></button></div>
             <div class="toggle-row"><div><b>识别图片型文章</b><div class="hint">文字不足 100 字时用 OpenAI 识图，额外计费；关闭时由下一篇补位</div></div><button class="switch" role="switch" aria-checked="false" data-sw="vision"><span class="track"></span></button></div>
             <div class="toggle-row"><div><b>允许重新采集已清理的文章</b><div class="hint">开启后，清理过的文章可能再次被选去写作</div></div><button class="switch" role="switch" aria-checked="false" data-sw="recollect"><span class="track"></span></button></div>
             <div class="toggle-row"><div><b>开机自动启动</b><div class="hint">登录 Windows 时在托盘启动</div></div><button class="switch" role="switch" aria-checked="false" data-sw="startup"><span class="track"></span></button></div>
@@ -258,6 +267,8 @@ details .inner { display: grid; gap: 16px; }
           <div class="grid2">
             <div class="field"><label for="limit">每个公众号读取上限</label><input class="input" id="limit" data-k="limit" inputmode="numeric" value="24"><span class="hint">1—160 篇；时间范围内的文章超过上限时会提示</span></div>
             <div class="field"><label for="minreads">最低阅读量</label><input class="input" id="minreads" data-k="minreads" inputmode="numeric" value="0"><span class="hint">0 表示不设门槛；阅读量未知的文章不参与热度排名</span></div>
+            <div class="field"><label for="paidcap">每次任务最多付费请求次数</label><input class="input" id="paidcap" data-k="paidcap" inputmode="numeric" placeholder="留空不限制"><span class="hint">包含采集、模型、联网搜索及重试；父任务与子稿件合计。只限制请求次数，不能保证人民币金额上限，费用未知的请求也计入。</span></div>
+            <p class="hint" id="utility-cost" role="status">设置页付费操作用量加载中…</p>
           </div>
           <div class="field"><span class="lbl">数据</span>
             <div class="maint"><button class="btn" data-act="已备份数据库到你选择的位置（不含 Key）">备份数据库</button><button class="btn" data-act="恢复前已自动保存当前数据库副本，并暂停定时任务（示例）">恢复数据库</button><button class="btn" data-act="已打开数据目录（示例）">打开数据目录</button></div>

@@ -1,0 +1,57 @@
+/* The five pages share one shell and a small set of information-first controls. */
+.app { display: grid; grid-template-columns: 190px minmax(0, 1fr); min-height: 100vh; }
+.rail {
+  position: sticky; top: 0; align-self: start; height: 100vh; height: 100dvh;
+  overflow-y: auto; display: flex; flex-direction: column; gap: 26px;
+  padding: 22px 14px 18px; background: var(--sheet); border-right: 1px solid var(--rule);
+}
+.brand { display: flex; flex-direction: row; align-items: center; gap: 12px; padding: 2px 7px; }
+.brand-mark {
+  flex: none; display: grid; place-items: center; width: 36px; height: 36px;
+  border: 2px solid #7a9464; border-radius: 10px; transform: rotate(-7deg);
+  background: var(--lime); color: var(--lime-ink); font: 900 22px/1 var(--font-body);
+}
+.brand-copy { min-width: 0; display: grid; gap: 2px; }
+.brand-copy b { font: 800 16px/1.2 var(--font-body); letter-spacing: -.02em; }
+.brand-copy span { color: var(--ink-2); font-size: 11px; white-space: nowrap; }
+.rail .nav { display: grid; gap: 5px; }
+.rail .nav button {
+  all: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: flex-start; gap: 11px;
+  width: 100%; min-height: 42px; padding: 9px 12px; border-radius: 11px;
+  color: var(--ink); font-weight: 700; cursor: pointer;
+}
+.rail .nav button:hover:not([aria-current="page"]) { background: var(--ground); }
+.rail .nav button[aria-current="page"] { background: var(--lime); color: var(--lime-ink); }
+.rail .nav button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.rail .nav svg {
+  flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+}
+.rail .nav small { display: none; }
+.rail .theme-box { margin-top: auto; display: grid; gap: 6px; padding: 12px 4px 0; border-top: 1px solid var(--rule); }
+.rail .theme-label { padding-left: 7px; color: var(--ink-2); font-size: 11px; font-weight: 700; }
+.rail .theme { position: relative; display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border: 1px solid var(--rule); border-radius: 999px; background: var(--ground); }
+.rail .theme .thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 999px; background: var(--lime); transition: transform .2s ease; }
+.rail .theme[data-v="dark"] .thumb { transform: translateX(100%); }
+.rail .theme button { position: relative; z-index: 1; display: grid; place-items: center; border: 0; border-radius: 999px; min-height: 32px; padding: 5px 7px; background: transparent; color: var(--ink); font-size: 12px; font-weight: 800; }
+.rail .theme button[aria-checked="true"] { color: var(--lime-ink); }
+.rail .theme button svg { display: none; }
+.rail .theme-box + .foot { margin-top: 0; padding: 0 5px; color: var(--ink-2); font-size: 11px; }
+main { min-width: 0; padding: 30px clamp(18px, 4vw, 54px) 70px; }
+.panel { min-width: 0; border: 1px solid var(--rule); border-radius: 20px; background: var(--sheet); }
+.btn { min-height: 38px; border-radius: 11px; font-weight: 700; }
+.btn.primary { background: var(--jade); border-color: var(--jade); color: var(--sheet); }
+.btn:disabled { opacity: .66; }
+.chip { display: inline-flex; align-items: center; min-height: 25px; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
+.toast { max-width: calc(100vw - 32px); line-height: 1.4; }
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail { position: static; height: auto; overflow: visible; border-right: 0; border-bottom: 1px solid var(--rule); padding: 12px; gap: 8px; }
+  .rail .nav { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 3px; }
+  .rail .nav button { flex-direction: column; gap: 3px; min-height: 49px; padding: 7px 2px; text-align: center; font-size: 11px; }
+  .rail .nav svg { width: 16px; height: 16px; }
+  .brand-copy span, .rail .foot, .rail .theme-label { display: none; }
+  .rail .theme-box { margin-top: 0; padding: 7px 0 0; border-top: 0; justify-self: end; }
+  .rail .theme { width: 154px; }
+  main { padding: 24px 16px 46px; }
+}

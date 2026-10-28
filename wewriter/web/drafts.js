@@ -14,9 +14,15 @@ async function loadList() {
   if (ui.page > pages - 1) { ui.page = pages - 1; return loadList(); }
   $('tabs').innerHTML = TABS.map(t => `<button aria-pressed="${t === ui.tab}" data-tab="${t}">${t} ${r.counts[t] ?? 0}</button>`).join('');
   $('total').textContent = `共 ${r.total} 篇`;
-  $('list').innerHTML = r.rows.length ? r.rows.map(d => `<li><div><div class="t">${esc(d.t)}</div>
-      <div class="m"><span class="${textCls(d.s)}">${d.s}</span><span>${d.when}（中国时间）</span>${d.flag ? `<span class="flag">${esc(d.flag)}</span>` : ''}</div></div>
-      <div class="acts"><button class="btn quiet" data-copy="${d.id}" data-state="${d.s}">复制全文</button><button class="btn" data-open="${d.id}">查看稿件</button></div></li>`).join('')
+  $('list').innerHTML = r.rows.length ? r.rows.map(d => `<li class="draft-slot">
+      <button class="draft-paper" type="button" data-open="${d.id}" aria-label="打开稿件《${esc(d.t)}》">
+        <span class="paper-top"><span class="paper-kind">WEWRITER · 稿件</span><span class="paper-state ${textCls(d.s)}">${esc(d.s)}</span></span>
+        <span class="paper-title">${esc(d.t)}</span>
+        ${d.s === '已通过' ? '<span class="paper-stamp" aria-label="人工审核合格">合格<small>人工审核</small></span>' : ''}
+        <span class="paper-bottom"><span>${esc(d.when)} · 中国时间</span>${d.flag ? `<span class="paper-flag">${esc(d.flag)}</span>` : ''}</span>
+      </button>
+      <button class="paper-copy" type="button" data-copy="${d.id}" data-state="${esc(d.s)}">复制全文</button>
+    </li>`).join('')
     : `<li class="empty">${ui.q ? '没有找到包含这个关键词的稿件。' : ui.tab === '全部' ? '这里还没有稿件。在工作台开始一个任务后，生成的稿件会出现在这里。' : `没有“${ui.tab}”的稿件。`}</li>`;
   $('pager').hidden = pages <= 1;
   $('pageinfo').textContent = `第 ${ui.page + 1}/${pages} 页 · 每页 ${r.per} 篇`;
@@ -49,29 +55,91 @@ function inline(text) {
   return esc(text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .replace(/\[(S|W)(\d+)\]/g, '<span class="cite" title="来源 $1$2，导出发布稿时会去掉">$1$2</span>');
 }
-function prose(md) {
-  return String(md || '').split(/\n{2,}/).map(raw => {
-    const block = raw.trim(), lines = block.split('\n').map(l => l.trim());
-    if (/^#{1,6}\s/.test(block)) return `<h3>${inline(block.replace(/^#{1,6}\s*/, ''))}</h3>`;
-    if (block.startsWith('>')) return `<blockquote>${lines.map(l => inline(l.replace(/^>\s?/, ''))).join('<br>')}</blockquote>`;
-    if (lines.length > 1 && lines.every(l => l.startsWith('|'))) {
-      const cells = l => l.replace(/^\||\|$/g, '').split('|').map(c => c.trim());
-      const rows = lines.filter(l => !/^\|[\s:|-]+\|$/.test(l)).map(cells);
-      return `<table><thead><tr>${rows[0].map(c => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${
-        rows.slice(1).map(r => `<tr>${r.map(c => `<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
-    }
-    if (lines.every(l => /^\d+[.、]\s/.test(l))) return `<ol>${lines.map(l => `<li>${inline(l.replace(/^\d+[.、]\s*/, ''))}</li>`).join('')}</ol>`;
-    if (lines.every(l => /^[-*]\s/.test(l))) return `<ul>${lines.map(l => `<li>${inline(l.replace(/^[-*]\s*/, ''))}</li>`).join('')}</ul>`;
-    return `<p>${lines.map(inline).join('<br>')}</p>`;
-  }).join('');
+// marks: {block index: [hint]} from the backend; those paragraphs are shown in red with the hint under them.
+function prose(md, marks = {}) {
+  return String(md || '').split(/\n{2,}/).map((raw, i) => markBlock(blockHtml(raw), marks[i])).join('');
+}
+function markBlock(html, hints) {
+  return hints ? `<div class="verify">${html}<ul class="verify-note">${hints.map(h => `<li>需核实：${esc(h)}</li>`).join('')}</ul></div>` : html;
+}
+function blockHtml(raw) {
+  const block = raw.trim(), lines = block.split('\n').map(l => l.trim());
+  if (/^#{1,6}\s/.test(block)) return `<h3>${inline(block.replace(/^#{1,6}\s*/, ''))}</h3>`;
+  if (block.startsWith('>')) return `<blockquote>${lines.map(l => inline(l.replace(/^>\s?/, ''))).join('<br>')}</blockquote>`;
+  if (lines.length > 1 && lines.every(l => l.startsWith('|'))) {
+    const cells = l => l.replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+    const rows = lines.filter(l => !/^\|[\s:|-]+\|$/.test(l)).map(cells);
+    return `<table><thead><tr>${rows[0].map(c => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${
+      rows.slice(1).map(r => `<tr>${r.map(c => `<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  }
+  if (lines.every(l => /^\d+[.、]\s/.test(l))) return `<ol>${lines.map(l => `<li>${inline(l.replace(/^\d+[.、]\s*/, ''))}</li>`).join('')}</ol>`;
+  if (lines.every(l => /^[-*]\s/.test(l))) return `<ul>${lines.map(l => `<li>${inline(l.replace(/^[-*]\s*/, ''))}</li>`).join('')}</ul>`;
+  return `<p>${lines.map(inline).join('<br>')}</p>`;
 }
 async function openDraft(id) {
   const d = await call('dr_get', id);
   if (!d) return;
-  ui.open = d; ui.editing = false; ui.dirty = false; ui.panel = null;
+  ui.open = d; ui.editing = false; ui.dirty = false; ui.panel = null; ui.reviewNote = null;
   $('v-list').hidden = true; $('v-draft').hidden = false; renderDraft(); window.scrollTo({ top: 0 });
+  reviewDone(d); watchReview();
 }
-async function reopen() { const d = await call('dr_get', ui.open.id); if (d) { ui.open = d; renderDraft(); } }
+async function reopen() { const d = await call('dr_get', ui.open.id); if (d) { ui.open = d; renderDraft(); reviewDone(d); } }
+
+/* ---- 补跑二审 ---- */
+// Runs on the backend worker; the page polls the draft until the run ends. Every outcome (started,
+// refused, finished, failed) stays written in the review line, not only in a short toast.
+function reviewDone(d) {
+  if (!d.review_result) return;
+  ui.reviewNote = { ok: d.review_result.ok, text: d.review_result.text };
+  if (!ui.editing) renderDraft();
+  toast(d.review_result.text);
+}
+let reviewTimer = null;
+function watchReview() {
+  clearTimeout(reviewTimer);
+  if (!ui.open || !ui.open.review_running) return;
+  const id = ui.open.id;
+  reviewTimer = setTimeout(async () => {
+    if (!ui.open || ui.open.id !== id) return;
+    let d = null;
+    try { d = await api('dr_get', id); } catch (_) {}
+    if (!ui.open || ui.open.id !== id) return;
+    if (!d) { watchReview(); return; }      // a failed refresh must not freeze the page on “补跑中…”
+    ui.open = d;
+    if (!ui.editing) renderDraft();
+    reviewDone(d); watchReview();
+  }, 3000);
+}
+async function rerunReview(button) {
+  if (button.disabled) return;
+  // Visible at once, before the backend answers.
+  button.disabled = true; button.textContent = '正在启动…';
+  const id = ui.open.id;
+  try {
+    await api('dr_rereview', id);
+  } catch (e) {
+    ui.reviewNote = { ok: false, text: '补跑二审没有开始：' + (e && e.message ? e.message : '后台没有响应，请重试') };
+    if (ui.open && ui.open.id === id) renderDraft();
+    toast(ui.reviewNote.text);
+    return;
+  }
+  if (!ui.open || ui.open.id !== id) return;
+  ui.reviewNote = { ok: true, text: '已开始补跑二审，完成后会保存为新版本；可以离开本页，结果会保留在这里。' };
+  ui.open.review_running = true; renderDraft(); watchReview();
+  toast('已开始补跑二审');
+}
+function reviewLine(d) {
+  // Facts an older draft still has unchecked: shown as a count only, the check itself is the program's job.
+  const pending = d.unverified ? `这篇有 ${d.unverified} 项事实尚未自动查证，可点补跑二审处理。` : '';
+  const note = ui.reviewNote && !d.review_running && !ui.reviewNote.text.startsWith('已开始')
+    ? `<div class="${ui.reviewNote.ok ? 'okline' : 'warnline'}" id="review-note" role="status">${esc(ui.reviewNote.text)}</div>` : '';
+  if (d.review === 'done' && !d.review_running)
+    return note + `<div class="note reviewline" style="margin-top: 14px"><span>${pending || '已完成 AI 二审。可以按当前的逐句核对标准重新二审一次，通过后保存为新版本。'}</span><button class="btn" id="rerun">补跑二审</button></div>`;
+  const text = d.review_running ? '正在补跑 AI 二审（通常需要 1～3 分钟），完成前请不要编辑这篇稿件。'
+    : (d.review === 'failed' ? 'AI 二审失败，当前是通过基础校验的初稿。可以用已保存的初稿和资料补跑一次二审。'
+      : '这篇稿件没有经过 AI 二审。可以用已保存的初稿和资料补跑一次二审。') + pending;
+  return note + `<div class="warnline reviewline" role="status"><span>${text}</span><button class="btn" id="rerun" ${d.review_running ? 'disabled' : ''}>${d.review_running ? '补跑中…' : '补跑二审'}</button></div>`;
+}
 async function leave(next) {
   if (ui.dirty && !(await confirmBox('有未保存的修改', '离开后，这次编辑的内容会丢失。', '放弃修改并离开', '继续编辑'))) return;
   ui.dirty = false; ui.editing = false; next();
@@ -104,20 +172,26 @@ function renderDraft() {
   }
   const log = d.log.length ? d.log.map(([w, s, n]) => `<li><span>${esc(w)}</span><span class="who">${esc(s)}</span><span>${n ? esc(n) : '—'}</span></li>`).join('')
     : '<li><span class="note">还没有人工审核记录</span></li>';
-  $('sheet').innerHTML = `<h2>${esc(d.t)}</h2>
+  const marks = d.marks || {}, unplaced = d.unplaced || [], marked = Object.keys(marks).length;
+  $('sheet').innerHTML = `${st === '已通过' ? '<div class="sheet-stamp" aria-label="人工审核合格">合格<small>人工审核</small></div>' : ''}${markBlock(`<h2>${esc(d.t)}</h2>`, marks[-1])}
     <div class="byline"><span>${d.when}（中国时间）更新</span><span>第 ${d.rev} 版</span><span>约 ${d.words} 字</span></div>
-    ${d.flag ? `<div class="warnline">${esc(d.flag)}：发布前请对照下方“来源与审核提示”核实。</div>` : ''}
+    ${d.flag ? `<div class="warnline">${esc(d.flag)}：${marked ? `已在正文中标红 ${marked} 处需要核实的段落。` : ''}${unplaced.length
+      ? `${marked ? '另有' : '有'} ${unplaced.length} 条提示没有对应到具体段落，见下方“来源与审核提示”。` : '发布前请逐处核实。'}</div>` : ''}
+    ${d.leaks && d.leaks.length ? `<div class="warnline" id="leak-line" role="alert" style="color: var(--cinnabar); background: var(--cinnabar-soft)"><b>稿件中出现了其他公众号名称，导出前请修改或点补跑二审。</b>（${esc(d.leaks.join('；'))}）</div>` : ''}
+    ${reviewLine(d)}
     ${st === '已通过' ? '<div class="okline">你已审核通过这篇稿件。审核通过不会自动发布；修改正文后会回到“待审核”。</div>' : ''}
-    <div class="prose">${prose(d.body)}</div>
+    <div class="prose">${prose(d.body, marks)}</div>
     <div class="actions">
-      <button class="btn" id="edit">编辑</button><span class="grow"></span>
+      <button class="btn" id="edit" ${d.review_running ? 'disabled' : ''}>编辑</button><span class="grow"></span>
       <button class="btn warn" id="fix" ${st === '需修改' ? 'disabled' : ''}>标记需修改</button>
       <button class="btn primary" id="pass" ${st === '已通过' ? 'disabled' : ''}>审核通过</button>
       <button class="btn" id="copy">复制全文</button>
       <button class="btn" id="exp">导出</button>
+      <button class="btn quiet" id="mark">设为范文/反例</button>
     </div>
     <div id="inline"></div>
     <details class="more"><summary>来源与审核提示</summary>
+      ${unplaced.length ? `<h5>没有对应到具体段落的审核提示</h5><ul class="verify-note">${unplaced.map(h => `<li>${esc(h)}</li>`).join('')}</ul>` : ''}
       <h5>来源对应关系</h5>${d.sources.length ? `<ul class="src">${d.sources.map(([k, t, m]) => `<li><b>${esc(k)}</b><span>${esc(t)}<small>${esc(m)}</small></span></li>`).join('')}</ul>` : '<div class="note">没有记录来源。</div>'}
       <h5>素材报告与机器审核提示（保留原记录，不会因人工审核被清除）</h5>
       <div class="note" style="white-space: pre-wrap; max-height: 320px; overflow-y: auto; margin-top: 8px; background: var(--ground); padding: 10px 12px; border-radius: 8px">${esc(d.machine || '没有机器审核提示')}</div>
@@ -125,10 +199,12 @@ function renderDraft() {
       <h5>历史版本</h5><ul class="log">${d.versions.map(([r, w], i) => `<li><span>第 ${r} 版</span><span class="who">${i === 0 ? '当前' : ''}</span><span>${esc(w)}</span></li>`).join('')}</ul>
     </details>`;
   $('edit').addEventListener('click', () => { ui.editing = true; renderDraft(); });
+  if ($('rerun')) $('rerun').addEventListener('click', e => rerunReview(e.currentTarget));
   $('fix').addEventListener('click', () => { ui.panel = 'fix'; renderInline(); });
   $('pass').addEventListener('click', () => { ui.panel = 'pass'; renderInline(); });
   $('copy').addEventListener('click', () => copyDraft(d.id, st));
   $('exp').addEventListener('click', () => { ui.panel = ui.panel === 'exp' ? null : 'exp'; renderInline(); });
+  $('mark').addEventListener('click', () => { ui.panel = ui.panel === 'mark' ? null : 'mark'; renderInline(); });
   renderInline();
 }
 
@@ -164,6 +240,21 @@ function renderInline() {
     };
     $('ex-copy').addEventListener('click', () => run('copy'));
     $('ex-report').addEventListener('click', () => run('report'));
+  } else if (ui.panel === 'mark') {
+    // T-029: approved or disliked drafts feed the example library the style card is learned from.
+    box.innerHTML = `<div class="inline" style="background: var(--ground)"><b>加入范文库</b>
+      <span>范文：以后的稿件学它的写法；反例：告诉模型不要这样写。只学写法，不学其中的事实。加入后到“设置 → 写作风格”重新生成风格卡。</span>
+      <div class="row"><select class="select" id="mk-kind" style="width: auto"><option value="good">设为范文</option><option value="bad">设为反例</option></select>
+        <input class="input" id="mk-score" placeholder="客户打分（可空）" style="width: 150px"></div>
+      <textarea id="mk-note" placeholder="不要学的地方，或为什么不喜欢（可空）"></textarea>
+      <div class="row"><button class="btn primary" id="mk-yes">加入</button><button class="btn quiet" id="mk-no">取消</button></div></div>`;
+    $('mk-yes').addEventListener('click', async () => {
+      const kind = $('mk-kind').value;
+      if (await call('dr_mark_example', d.id, kind, $('mk-note').value.trim(), $('mk-score').value.trim())) {
+        ui.panel = null; renderInline(); toast(kind === 'good' ? '已设为范文' : '已设为反例');
+      }
+    });
+    $('mk-no').addEventListener('click', () => { ui.panel = null; renderInline(); });
   } else box.innerHTML = '';
 }
 

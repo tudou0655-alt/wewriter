@@ -4,6 +4,8 @@ const ui = { q: '', acct: 'all', range: 'all', sort: 'reads', page: 0, open: nul
 const STATES = { used: ['已用于生成稿件', 'st-used'], ok: ['未使用', ''], nobody: ['正文未获取', 'st-wait'], bad: ['正文获取失败', 'st-bad'] };
 STATES.summary = ['摘要失败 · 正文已保存', 'st-bad'];
 STATES.processing = ['处理异常 · 正文已保存', 'st-wait'];
+const READ_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>';
+const LIKE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10v11H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3Zm0 0 5-8a3 3 0 0 1 2 3v3h5a3 3 0 0 1 2.9 3.7l-1.9 7A3 3 0 0 1 17.1 21H7"/></svg>';
 
 async function load() {
   const r = await call('art_list', ui.q, ui.acct, ui.range, ui.sort, ui.page);
@@ -17,11 +19,16 @@ async function load() {
   $('total').textContent = `共 ${r.total} 篇` + (r.total !== r.all ? `（文章库共 ${r.all} 篇）` : '');
   $('list').innerHTML = r.rows.length ? r.rows.map(a => {
     const [label, cls] = STATES[a.state];
-    return `<li><div>
-        <div class="t">${esc(a.t)}</div>
-        <div class="m"><span>${esc(a.acct)}</span><span>${a.when}</span><span class="${cls}">${label}</span></div>
-        <div class="stats"><span class="${a.reads === null ? 'unknown' : ''}">阅读<b>${fmtNum(a.reads)}</b></span><span class="${a.likes === null ? 'unknown' : ''}">点赞<b>${fmtNum(a.likes)}</b></span></div>
-      </div><button class="btn" data-open="${a.id}">${a.state === 'nobody' || a.state === 'bad' ? '查看详情' : '查看文章'}</button></li>`;
+    return `<li class="article-slot">
+      <button type="button" class="shelf-book" data-open="${a.id}" aria-label="抽出并查看文章《${esc(a.t)}》" title="${esc(a.t)}">
+        <span class="book-front"><span class="book-mark" aria-hidden="true">✦</span>
+          <span class="book-title">${esc(a.t)}</span><span class="book-source">${esc(a.acct)}</span>
+          <span class="book-state ${cls}">${label}</span></span>
+      </button>
+      <div class="shelf-label"><span class="shelf-date">${esc(a.when)} · 中国时间</span>
+        <div class="stats"><span class="${a.reads === null ? 'unknown' : ''}">${READ_ICON}<span>阅读</span><b>${fmtNum(a.reads)}</b></span>
+          <span class="${a.likes === null ? 'unknown' : ''}">${LIKE_ICON}<span>点赞</span><b>${fmtNum(a.likes)}</b></span></div>
+      </div></li>`;
   }).join('') : `<li class="empty">${r.all ? '没有符合条件的文章。可以换个关键词，或把时间范围放宽。' : '文章库还是空的。在工作台开始一个任务后，采集到的文章会出现在这里。'}</li>`;
   $('pager').hidden = pages <= 1;
   $('pageinfo').textContent = `第 ${ui.page + 1}/${pages} 页 · 每页 ${r.per} 篇`;
@@ -59,7 +66,17 @@ async function open(id) {
   $('dw-meta').innerHTML = a.meta.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
   $('drawer').hidden = false; $('drawer').scrollTop = 0; $('dw-close').focus();
 }
-$('list').addEventListener('click', e => { const b = e.target.closest('[data-open]'); if (b) open(Number(b.dataset.open)); });
+let pullingBook = false;
+$('list').addEventListener('click', async e => {
+  const book = e.target.closest('[data-open]');
+  if (!book || pullingBook) return;
+  pullingBook = true;
+  book.classList.add('pulling');
+  const delay = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 260;
+  await new Promise(resolve => setTimeout(resolve, delay));
+  try { await open(Number(book.dataset.open)); }
+  finally { book.classList.remove('pulling'); pullingBook = false; }
+});
 $('dw-close').addEventListener('click', () => { $('drawer').hidden = true; });
 /* 再写一篇: ask for an optional direction first, and show what was already written from this article. */
 $('dw-rewrite').addEventListener('click', () => {

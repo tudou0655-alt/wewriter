@@ -4,6 +4,8 @@ __pycache__/
 build/
 dist/
 .local-data/
+tmp/
+output/
 *.db*
 *.log
 *.spec

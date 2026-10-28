@@ -17,13 +17,14 @@ class ExportTest(unittest.TestCase):
         self.assertNotIn('[S2]', result)
         self.assertNotIn('[W2]', result)
         self.assertEqual(result.count('## 参考资料网站'), 1)
-        self.assertIn('[公众号原文](https://mp.weixin.qq.com/s/source)', result)
+        self.assertNotIn('mp.weixin.qq.com', result)          # iron rule: no WeChat post in the public list
+        self.assertNotIn('公众号原文', result)
         self.assertIn('[政府网站](https://gov.example/policy)', result)
         self.assertNotIn('未引用资料', result)
 
     def test_txt_has_urls_without_markdown_or_ids(self):
         result = export_document('标题', '正文[S2]', self.sources, markdown=False)
-        self.assertIn('公众号原文：https://mp.weixin.qq.com/s/source', result)
+        self.assertNotIn('mp.weixin.qq.com', result)
         self.assertNotIn('[S2]', result)
         self.assertNotIn('](http', result)
 

@@ -20,7 +20,8 @@ import webbrowser
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from . import BUILD_INFO_NAME, __version__, build_label
-from .api import ApiError, Model, Transport, wechat_url
+from .api import (ATTRIBUTION_TERMS, QUOTE_NOTE, SPREAD_NOTE, ApiError, Model, Transport, is_verification_todo, merge_similar,
+                  unsupported_attributions, wechat_url)
 from .config import due_key, validate
 from .db import Database
 from .engine import Engine, format_coverage, format_funnel, load_funnel
@@ -47,11 +48,12 @@ ERROR_HINTS = {
 # Model IDs offered in settings; any other ID the service supports can be typed.
 # Checked against the providers' model pages on 2026-10-25; the user chose these four.
 MODEL_OPTIONS = {'openai': ['gpt-5.6-terra', 'gpt-6-luna'],
-                 'deepseek': ['deepseek-v4-pro', 'deepseek-flash']}
+                 'deepseek': ['deepseek-v4-pro', 'deepseek-flash'],
+                 'bailian': ['qwen3.8-flash']}
 RECOMMENDED = {'writer_provider': 'deepseek', 'summary_provider': 'deepseek',
-               'deepseek': 'deepseek-v4-pro', 'search_model': 'gpt-5.6-terra'}
+               'deepseek': 'deepseek-flash', 'search_model': 'deepseek-flash'}
 STYLE_PRESETS = {
-    '政策申报实务': '面向企业决策者和申报负责人：专业但好懂，结论先行，像懂行的同行讲清政策变化和申报要点；用数据和往年对比说话，避免公文套话和夸张营销。',
+    '政策申报实务': '面向企业老板和申报负责人：像懂行的朋友当面讲事，短句、说人话，结论先行；用具体数字和例子讲清政策变化和该做什么，不写公文腔和论文腔，不夸张营销。',
     '参考原文风格': '参考原文的语气、结构和表达习惯，但不照搬原句。',
     '通俗自然': '面向普通读者，通俗自然，清晰有逻辑，避免夸张营销和空泛套话。',
     '专业简洁': '专业简洁，结论先行，用词准确，避免口语化和空泛套话。',
@@ -135,6 +137,13 @@ def job_status_label(job):
         warned = True
     if job['status'] == '等待中' and job.get('stage') == '排队中':
         return '排队中'
+    if job['status'] == '部分完成':
+        # Too few new articles is not a fault; say so instead of a bare “部分完成”.
+        message = job.get('message') or ''
+        made = re.search(r'已生成 (\d+)/(\d+)', message)
+        if made:
+            lead = '素材不足，完成' if '新素材不足' in message else '部分完成'
+            return f'{lead} {made.group(1)}/{made.group(2)}'
     return job['status'] + ('（有提示）' if warned and job['status'] == '已完成' else '')
 
 
@@ -181,10 +190,15 @@ def export_document(title, body, sources, markdown=True):
     body = re.sub(r'\s*\[(?:S|W)\d+\]', '', body)
     body = re.sub(r'[ \t]+([，。！？；：,.!?;:])', r'\1', body)
     body = re.sub(r'\n{3,}', '\n\n', body).strip()
-    by_id = {str(s.get('source_id')): s for s in sources if isinstance(s, dict)}
+    # Iron rule: the reader-facing list shows only non-WeChat websites (government, platforms);
+    # a WeChat post or account would reveal where the material came from.
+    from .anonymity import is_wechat
+    public = [s for s in sources if isinstance(s, dict) and not str(s.get('source_id', '')).startswith('S')
+              and not is_wechat(s.get('url'))]
+    by_id = {str(s.get('source_id')): s for s in public}
     selected = [by_id[sid] for sid in cited if sid in by_id]
     if not selected:
-        selected = [s for s in sources if isinstance(s, dict) and s.get('url')]
+        selected = [s for s in public if s.get('url')]
     unique, seen = [], set()
     for source in selected:
         url = str(source.get('url') or '').strip()
@@ -332,6 +346,91 @@ def draft_hint(report):
     if '## 联网研究状态' in report:
         return '联网资料降级，仅基于原文'
     return ''
+
+
+def _spot_text(text):
+    """Comparable form of a sentence: no source marks, Markdown, quotes, punctuation spacing or whitespace."""
+    text = re.sub(r'\[(?:S|W)\d+\]|\*\*|^#{1,6}|^>', '', str(text), flags=re.M)
+    return re.sub(r'[\s“”"‘’「」『』]', '', text)
+
+
+def _stale(hint, title, body):
+    """Older reports carry findings the current rules would not make: a quote note whose quote
+    is no longer in the text, or a spread note on a sentence that no longer counts as one."""
+    if hint.startswith(QUOTE_NOTE):
+        quote = hint[len(QUOTE_NOTE):].strip('“”')
+        return _spot_text(quote) not in _spot_text(str(title) + str(body))
+    if hint.startswith(SPREAD_NOTE):
+        # Only a sentence the current rules exempt ("不应……当作事实传播") is stale.
+        sentence = hint[len(SPREAD_NOTE):]
+        return bool(ATTRIBUTION_TERMS.search(sentence)) and not unsupported_attributions(sentence, [])
+    return False
+
+
+def _near_quote(quoted, head, blocks):
+    from difflib import SequenceMatcher
+    for q in quoted:
+        text = re.sub(r'[^\w]', '', _spot_text(q))
+        if len(text) < 12:
+            continue
+        for index, block in [(-1, head)] + list(enumerate(blocks)):
+            plain = re.sub(r'[^\w]', '', block)
+            match = SequenceMatcher(None, text, plain, autojunk=False).find_longest_match(0, len(text), 0, len(plain))
+            if match.size >= max(12, 0.8 * len(text)):
+                return {index}
+    return set()
+
+
+def review_marks(title, body, report):
+    """Place the report's reviewer hints on the paragraphs they are about.
+
+    Hints quote the sentence they concern (after "：" or inside quotes); a hint whose sentence is found
+    marks that paragraph (block index as the page splits Markdown on blank lines, -1 for the title).
+    Returns (marks, unplaced): {index: [hint, ...]} and the hints that name no sentence in the text.
+    """
+    lines, section = [], ''
+    for line in str(report or '').splitlines():
+        if line.startswith('## '):
+            section = line[3:].strip()
+        elif line.startswith('- ') and section in ('审核提示', 'AI 二审'):
+            hint = line[2:].strip()
+            # Requests to go and check a source (older drafts) are the program's job, not the reader's.
+            if section == '审核提示' and not is_verification_todo(hint) and not _stale(hint, title, body):
+                lines.append(hint)
+            # A kept sentence the reviewer found no evidence for also needs checking.
+            elif (re.match(r'逐句核对｜保留｜', hint) and re.search(r'｜证据：\s*[“"]?无', hint)
+                  and not re.search(r'｜证据：\s*无需证据', hint)):
+                lines.append('二审未找到证据：' + hint.split('｜')[2])
+        elif line.startswith('| 保留 |') and section.startswith('逐句核对'):
+            # Same, from the draft/revision table: | 处理 | 初稿 | 修订稿 | 证据 | 说明 |
+            cells = [c.strip() for c in line.strip().strip('|').split('|')]
+            if len(cells) >= 4 and cells[3].lstrip('“"').startswith('无') and not cells[3].startswith('无需证据'):
+                lines.append('二审未找到证据：' + cells[2])
+    blocks = [_spot_text(raw) for raw in re.split(r'\n{2,}', str(body or ''))]
+    head = _spot_text(title)
+    marks, unplaced = {}, []
+    for hint in merge_similar(list(dict.fromkeys(lines))):
+        quoted = re.findall(r'[“「]([^”」]{6,})[”」]', hint)
+        tail = [hint.split('：', 1)[1]] if '：' in hint else []
+        tail += [hint.rsplit('：', 1)[1]] if hint.count('：') > 1 else []
+        wanted = [_spot_text(q) for q in quoted if len(_spot_text(q)) >= 6]
+        wanted += [_spot_text(t) for t in tail if len(_spot_text(t)) >= 8]
+        hit = set()
+        for text in wanted:
+            if text and text in head:
+                hit.add(-1)
+            hit.update(i for i, block in enumerate(blocks) if text and text in block)
+            if hit:
+                break
+        if not hit:
+            # A quoted passage may be a slightly reworded copy of the body ("对符合条件的……" for
+            # "符合条件的……"): accept a block holding most of it in one piece.
+            hit = _near_quote(quoted, head, blocks)
+        for i in sorted(hit):
+            marks.setdefault(i, []).append(hint)
+        if not hit:
+            unplaced.append(hint)
+    return marks, unplaced
 
 
 def compose_style(preset, extra):
@@ -1880,7 +1979,7 @@ class App:
         # Model: one writing model in front (provider follows the model ID).
         models = self.card(title='模型')
         model_vars = {name: track(name + '_model', tk.StringVar(value=config['providers'][name]['model']))
-                      for name in ('openai', 'deepseek')}
+                      for name in ('openai', 'deepseek', 'bailian')}
         writer = track('writer_provider', tk.StringVar(value=config['writer_provider']))
         choice = tk.StringVar(value=model_vars[writer.get()].get())
 
@@ -1888,14 +1987,16 @@ class App:
             model = choice.get().strip()
             if not model:
                 return
-            provider = 'deepseek' if model.lower().startswith('deepseek') else 'openai'
+            provider = ('deepseek' if model.lower().startswith('deepseek') else
+                        'bailian' if model.lower().startswith('qwen') else 'openai')
             writer.set(provider)
             model_vars[provider].set(model)
-            key_title.configure(text=('DeepSeek' if provider == 'deepseek' else 'OpenAI') + ' API Key')
+            key_title.configure(text={'deepseek': 'DeepSeek', 'openai': 'OpenAI',
+                                      'bailian': '阿里云百炼'}[provider] + ' API Key')
             for name, frame in key_frames.items():
                 frame.pack_forget()
             key_frames[provider].pack(fill='x')
-        options = MODEL_OPTIONS['deepseek'] + MODEL_OPTIONS['openai']
+        options = MODEL_OPTIONS['deepseek'] + MODEL_OPTIONS['openai'] + MODEL_OPTIONS['bailian']
         if choice.get() not in options:
             options = [choice.get()] + options
         self.field(models, '写作与二审', lambda box: ttk.Combobox(box, textvariable=choice, values=options, width=40))
@@ -1904,29 +2005,34 @@ class App:
         key_box = tk.Frame(models, bg=p['paper'])
         key_box.pack(fill='x', pady=(0, 6))
         key_frames = {}
-        for name, hint in (('deepseek', ''), ('openai', '联网搜索也使用这个 Key')):
+        for name, hint in (('deepseek', ''), ('openai', ''), ('bailian', '')):
             holder = tk.Frame(key_box, bg=p['paper'])
             key_entry(holder, name, hint).pack(fill='x')
             key_frames[name] = holder
         choice.trace_add('write', picked)
         picked()
-        for name in ('summary_provider', 'search_model'):
+        for name in ('summary_provider', 'search_provider', 'search_model'):
             track(name, tk.StringVar(value=config[name]))
         for name, value in (('openai_url', config['providers']['openai']['base_url']),
                             ('deepseek_url', config['providers']['deepseek']['base_url']),
+                            ('bailian_url', config['providers']['bailian']['base_url']),
                             ('search_url', config['search_url'])):
             track(name, tk.StringVar(value=value))
 
         def addresses(body):
             for label, name in (('OpenAI 接口地址', 'openai_url'), ('DeepSeek 接口地址', 'deepseek_url'),
+                                ('百炼接口地址', 'bailian_url'),
                                 ('联网研究接口', 'search_url')):
                 self.field(body, label, lambda box, n=name: ttk.Entry(box, textvariable=variables[n]))
 
         def more_models(body):
             self.field(body, '摘要与分析使用', lambda box: self.combo(box, variables['summary_provider'],
-                                                                ['deepseek', 'openai'], 12))
-            self.field(body, '联网搜索模型（OpenAI web_search）', lambda box: ttk.Combobox(
-                box, textvariable=variables['search_model'], values=MODEL_OPTIONS['openai'], width=30))
+                                                                ['deepseek', 'openai', 'bailian'], 12))
+            self.field(body, '联网搜索服务', lambda box: self.combo(box, variables['search_provider'],
+                                                             ['deepseek', 'openai', 'bailian'], 12))
+            self.field(body, '联网搜索模型', lambda box: ttk.Combobox(
+                box, textvariable=variables['search_model'],
+                values=sum(MODEL_OPTIONS.values(), []), width=30))
             other = 'openai' if writer.get() == 'deepseek' else 'deepseek'
             self.field(body, ('OpenAI' if other == 'openai' else 'DeepSeek') + ' 模型（摘要或备用）',
                        lambda box: ttk.Combobox(box, textvariable=model_vars[other], values=MODEL_OPTIONS[other],
@@ -1938,13 +2044,13 @@ class App:
             def recommended():
                 choice.set(RECOMMENDED['deepseek'])
                 variables['summary_provider'].set(RECOMMENDED['summary_provider'])
+                variables['search_provider'].set('deepseek')
                 variables['search_model'].set(RECOMMENDED['search_model'])
-                self.status.set('已填入推荐模型（DeepSeek deepseek-v4-pro 写作与摘要，gpt-5.6-terra 联网搜索），点“保存设置”后生效')
+                self.status.set('已填入 DeepSeek 搜索与写作，点“保存设置”后生效')
             ttk.Button(body, text='填入推荐模型', command=lambda: self.safe(recommended)).pack(anchor='w')
         self.toggle(models, '接口地址', on_open=addresses)
         self.toggle(models, '更多模型配置', on_open=more_models)
-        self.text(models, '模型选项以实际接入服务为准，可直接输入服务支持的其他模型 ID。推荐：文档处理 deepseek-v4-pro，'
-                          '联网搜索 gpt-5.6-terra（更省钱可选 gpt-6-luna）。', 'muted', 9, anchor='w',
+        self.text(models, '默认使用 DeepSeek 搜索与写作。OpenAI、百炼可在更多模型配置中选择。', 'muted', 9, anchor='w',
                   pady=(8, 0), wrap=860)
 
         # Writing preferences: two columns, then the free-text requirement.
@@ -2045,7 +2151,10 @@ class App:
                     results['collect'] = '异常：' + redact(str(exc))[:120]
                 if billed:
                     try:
-                        Model(provider, settings, self.vault.get(provider), Transport()).complete(
+                        from .costs import CostMeter, UtilityFunnel
+                        transport = Transport()
+                        transport.cost_meter = CostMeter(UtilityFunnel(self.db))
+                        Model(provider, settings, self.vault.get(provider), transport).complete(
                             '只输出 JSON 对象 {"ok":true}', "测试连接，输出 JSON", tokens=128)
                         results['model'] = f"正常（{settings['model']}）"
                     except Exception as exc:
@@ -2153,12 +2262,19 @@ class App:
                 raise ValueError('篇幅、列表上限和最低阅读量必须填写整数') from None
             latest['writer_provider'] = writer.get()
             latest['summary_provider'] = variables['summary_provider'].get()
+            latest['search_provider'] = variables['search_provider'].get()
             latest['search_model'] = variables['search_model'].get().strip()
             latest['search_url'] = variables['search_url'].get().strip()
-            for provider in ('openai', 'deepseek'):
+            for provider in ('openai', 'deepseek', 'bailian'):
                 latest['providers'][provider] = {
                     'base_url': variables[provider + '_url'].get().strip().rstrip('/'),
                     'model': model_vars[provider].get().strip()}
+            latest['summary_model'] = latest['providers'][latest['summary_provider']]['model']
+            if latest['search_provider'] != config['search_provider']:
+                latest['search_url'] = ({'deepseek': latest['providers']['deepseek']['base_url'] + '/v1/tools/search',
+                                         'openai': latest['providers']['openai']['base_url'] + '/responses',
+                                         'bailian': latest['providers']['bailian']['base_url'] + '/responses'}
+                                        [latest['search_provider']])
             latest['style_preset'] = preset.get().strip()
             latest['style_extra'] = extra_text.get('1.0', 'end-1c').strip()
             latest['style'] = compose_style(latest['style_preset'], latest['style_extra'])

@@ -33,9 +33,11 @@ class BriefTest(unittest.TestCase):
         model, transport = self.model({'title': '标题', 'outline': ['a'], 'body': '原文。[S1] 通知。[W1]', 'review_notes': []})
         model.write(SOURCES, CONFIG)
         system = transport.payloads[0]['messages'][0]['content']
-        self.assertIn(EDITORIAL_BRIEF, system)
-        for need in ('企业中高层管理者', '可执行的建议', '优先补充原文之外的新信息', '往年'):
+        # T-029: who the reader is and what the article must get done now come from the style card.
+        self.assertNotIn(EDITORIAL_BRIEF, system)
+        for need in ('企业老板和项目负责人', '帮读者把一件具体的事办成', '只能使用 facts 中的事实'):
             self.assertIn(need, system)
+        self.assertNotIn('优先补充原文之外的新信息', system)
 
     def test_review_checks_against_brief(self):
         revision = {'title': '标题', 'outline': ['a'], 'body': '原文。[S1] 通知。[W1]', 'review_notes': [], 'quality_notes': ['x'],
@@ -43,15 +45,18 @@ class BriefTest(unittest.TestCase):
         model, transport = self.model(revision)
         model.review({'title': '标题', 'body': '原文。[S1] 通知。[W1]', 'review_notes': []}, SOURCES, CONFIG)
         system = transport.payloads[0]['messages'][0]['content']
-        self.assertIn(EDITORIAL_BRIEF, system)
-        self.assertIn('（9）对照上述读者与目标', system)
+        # T-029: the review checks facts and wording strength only; style is the style review's job.
+        self.assertNotIn(EDITORIAL_BRIEF, system)
+        self.assertIn('这是事实审核', system)
+        self.assertIn('说法强度不能超过来源可信等级', system)
 
     def test_facts_still_outrank_the_brief(self):
         model, transport = self.model({'title': '标题', 'outline': ['a'], 'body': '原文。[S1] 通知。[W1]', 'review_notes': []})
         model.write(SOURCES, CONFIG)
         system = transport.payloads[0]['messages'][0]['content']
-        self.assertIn('不得编造案例、企业、地区或数据', system)
-        self.assertLess(system.index(EDITORIAL_BRIEF), system.index('优先级：事实准确与证据支持高于用户 style'))
+        self.assertIn('不得为了模仿风格编造', system)
+        # The fact rules are part of the fixed rules that come before the style card.
+        self.assertLess(system.index('优先级：事实准确与证据支持高于用户 style'), system.index('【风格卡】'))
 
     def test_research_looks_for_official_documents_and_prior_years(self):
         transport = Capture({})

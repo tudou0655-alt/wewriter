@@ -20,6 +20,7 @@ from .config import validate, migrate
 from .db import stamp
 from .hotspots import count, rank  # noqa: F401
 from .logs import logger, redact
+from .costs import CostMeter
 from .pipeline import collect, composition, materials, research
 # Re-exported so ``from wewriter.engine import ...`` keeps working after the split.
 from .pipeline.collect import (COLLECT_KEYS, COVERAGE_ENDS, FUNNEL_LABELS, MATERIAL_KEYS, METRIC_SOURCES,  # noqa: F401
@@ -67,7 +68,15 @@ class _Run:
 
     @property
     def summarizer(self):
-        return self.model(self.config["summary_provider"])
+        provider = self.config['summary_provider']
+        model = self.config.get('summary_model') or self.config['providers'][provider]['model']
+        if model == self.config['providers'][provider]['model']:
+            return self.model(provider)
+        if '_summary' not in self._models:
+            settings = {**self.config['providers'][provider], 'model': model}
+            self._models['_summary'] = self.engine.model_factory(
+                provider, settings, self.engine.vault.get(provider), self.transport)
+        return self._models['_summary']
 
     @property
     def writer(self):
@@ -121,6 +130,12 @@ class Engine:
             # Retry uses the original non-secret configuration and time window.
             config = migrate(json.loads(job["config"]))
             validate(config)
+            # A user may raise the paid-request cap in Settings and resume the
+            # original job, keeping its already-paid stage checkpoints.
+            current_cap = self.db.config().get('max_paid_requests')
+            old_cap = config.get('max_paid_requests')
+            if old_cap is not None and (current_cap is None or current_cap > old_cap):
+                config['max_paid_requests'] = current_cap
             if self.db.rows("SELECT id FROM drafts WHERE job_id=?", (job["id"],)):
                 self.db.update_job(job["id"], status="已完成", message="已有稿件，未重复生成", error_code='')
                 return "已完成"
@@ -129,6 +144,7 @@ class Engine:
             # Likewise the funnel describes this attempt only and is rebuilt, never summed.
             funnel = Funnel.for_attempt(self.db, job, reuse_collection=bool(json.loads(job["selected"])))
             transport = Transport(self.cancel)
+            transport.cost_meter = CostMeter(funnel, config.get('max_paid_requests'))
             if source is None:
                 source = self._open_source(transport)
             ctx = _Run(self, job, config, transport, source)
@@ -138,19 +154,37 @@ class Engine:
             ctx.warnings = funnel.collection_warnings()
             if ctx.warnings:
                 self.db.update_job(job["id"], warnings=json.dumps(ctx.warnings, ensure_ascii=False))
-            # Resolve both models up front so a missing API key fails before
-            # any paid collection or summarising work is done.
-            ctx.summarizer, ctx.writer
             selected = json.loads(job["selected"])
+            action = config.get('task_action')
+            if action == 'collect':
+                if not selected:
+                    selected = self._collect(ctx)
+                funnel_data = ctx.funnel.data
+                found = (funnel_data.get('counts') or {}).get('candidates', 0)
+                status = '部分完成' if ctx.warnings else '已完成' if found else '无新文章'
+                message = f'已采集并保存 {found} 篇文章信息；其中 {len(selected)} 篇未写，可在“生成文章”中使用。'
+                if not found:
+                    message = '本次没有采集到时间范围内的文章；已保存的旧素材不受影响。'
+                self.db.update_job(job['id'], status=status, stage='完成', message=message,
+                                   error_code=ErrorCode.COLLECT if ctx.warnings else '')
+                self.notify(message)
+                return status
+            # Legacy combined tasks still check keys before paid collection. A library-only
+            # task checks its local selection first, then resolves keys before body fetching.
+            if action != 'write':
+                ctx.summarizer, ctx.writer
             if not selected:
-                selected = self._collect(ctx)
+                selected = (collect.select_saved(self, ctx) if action == 'write' else self._collect(ctx))
                 if not selected:
                     status = "失败" if ctx.warnings else "无新文章"
-                    message = ("采集存在异常且没有可用新文章，请查看警告后重试" if ctx.warnings
+                    message = ('素材库没有符合当前阅读量门槛、未写过的文章；请先采集素材或调整门槛' if action == 'write'
+                               else "采集存在异常且没有可用新文章，请查看警告后重试" if ctx.warnings
                                else "时间范围内没有未使用的新文章")
                     self.db.update_job(job["id"], status=status, message=message,
-                                       error_code=ErrorCode.COLLECT if ctx.warnings else '')
+                                       error_code=ErrorCode.MATERIAL if action == 'write' else ErrorCode.COLLECT if ctx.warnings else '')
                     return status
+            if action == 'write':
+                ctx.summarizer, ctx.writer
             if config.get('writing_mode') == 'separate_web':
                 # The batch owns one source/browser session; children reuse it.
                 return self.run_separate(job, config, selected, source)
@@ -192,6 +226,16 @@ class Engine:
     def rewrite_job(self, article_id, config, note=''):
         """A new single-article task from a source that may already have drafts; not started here."""
         return composition.rewrite_job(self, article_id, config, note)
+
+    def rerun_review(self, draft_id):
+        """Re-run the AI review of one saved draft; never alongside a running task."""
+        if not self.lock.acquire(blocking=False):
+            raise ValueError("已有任务运行中，请等它完成后再补跑二审")
+        try:
+            self.cancel.clear()
+            return composition.rerun_review(self, draft_id)
+        finally:
+            self.lock.release()
 
     def new_collection(self, config):
         """Explicitly collect again with the current configuration.
@@ -400,12 +444,33 @@ class Engine:
             logger.exception("单篇任务 %s 异常，继续处理其余文章", child['run_key'])
         return self.db.rows('SELECT * FROM jobs WHERE id=?', (child['id'],))[0]
 
+    # A single article that failed on a timeout or dropped connection may be replaced, but a
+    # network outage would fail every replacement too, so at most this many per batch.
+    NETWORK_REPLACEMENTS = 2
+
     def run_separate(self, job, config, selected, source=None):
         # Each output owns a child job: a retry never rewrites completed outputs.
         target = config.get('draft_count', 3)
         selected = self._batch_queue(job, config, selected)
+        # Collection is paid, but research and writing are still avoidable here.
+        # When the ranked queue cannot reach the requested count, do not spend
+        # model calls on a batch that is already guaranteed to be short.
+        saved = self.db.rows('''SELECT 1 FROM drafts d JOIN batch_items b ON b.child_job_id=d.job_id
+                                WHERE b.parent_job_id=? LIMIT 1''', (job['id'],))
+        if len(selected) < target and not saved:
+            origin = ('素材库' if config.get('task_action') == 'write' else '采集完成')
+            message = (f'{origin}：目标 {target} 篇，只有 {len(selected)} 篇未使用且符合选文条件；'
+                       '未启动联网研究或模型写作。'
+                       + ('本次未重新采集；请先采集素材、降低篇数或调整阅读量门槛' if config.get('task_action') == 'write'
+                          else '采集请求已经发生，可能产生采集费用；请调整时间范围、公众号或篇数后新建采集任务'))
+            self.db.update_job(job['id'], status='失败', stage='完成', message=message,
+                               error_code=ErrorCode.MATERIAL)
+            self.notify(message)
+            return '失败'
         primary_count = min(target, len(selected))
-        done, titles, replacement_slots, replacements = 0, [], 0, []
+        done, titles, replacement_slots = 0, [], 0
+        # Failures waiting for a replacement, then (failed label, reason, replacement label) pairs.
+        pending, replacements, network_grants = [], [], 0
         last_code = ErrorCode.MATERIAL if not selected else ''
         for rank_position, article_id in enumerate(selected, 1):
             is_replacement = rank_position > primary_count
@@ -423,22 +488,31 @@ class Engine:
                 titles.append(drafts[0]['title'])
                 if is_replacement:
                     replacement_slots -= 1
-                    replacements.append(label)
+                    replacements.append((*pending.pop(0), label))
                 continue
             # Old (pre-0.10.1) child rows have no code; fall back to their message.
-            replaceable = (child.get('error_code') == ErrorCode.MATERIAL or (
-                not child.get('error_code') and child['stage'] == '正文与摘要'
-                and child['message'].startswith('素材处理未完成：')))
-            last_code = child.get('error_code') or ErrorCode.API
-            if replaceable and not is_replacement:
+            code = child.get('error_code')
+            reason = None
+            if code == ErrorCode.MATERIAL or (not code and child['stage'] == '正文与摘要'
+                                              and child['message'].startswith('素材处理未完成：')):
+                reason = '素材提取失败'
+            elif code == ErrorCode.NETWORK and network_grants < self.NETWORK_REPLACEMENTS:
+                # Timeouts and connection failures only; key, balance, permission and request
+                # errors (AUTH / API codes) would hit every replacement and are not replaced.
+                network_grants += 1
+                reason = '因超时或网络中断失败'
+            last_code = code or ErrorCode.API
+            if reason and not is_replacement:
                 replacement_slots += 1
-            elif not replaceable and is_replacement:
+                pending.append((label, reason))
+            elif not reason and is_replacement:
                 # A shared failure (model, key, research) would hit every
                 # replacement too; do not walk the whole queue.
                 replacement_slots -= 1
+            # A replacement that failed in a replaceable way leaves its slot to the next article.
         extra = ''
         if replacements:
-            extra += f'；{len(replacements)} 篇素材提取失败，已由' + '、'.join(replacements) + '补位'
+            extra += ''.join(f'；{failed}{reason}，已由{used}补位' for failed, reason, used in replacements)
         if len(selected) < target or (done < target and replacement_slots > 0):
             extra += '；符合条件的新素材不足，可在运行记录中“按当前配置新建采集”或扩大时间范围'
             accounts = (load_funnel(self.db.rows('SELECT funnel FROM jobs WHERE id=?', (job['id'],))[0]['funnel'])

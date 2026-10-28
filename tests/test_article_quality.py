@@ -11,8 +11,8 @@ import unittest
 from pathlib import Path
 
 import test_core
-from wewriter.api import (ARTICLE_VOICE, FACTS_FIRST, FIDELITY_RULES, ApiError, Model, style_context,
-                          unchecked_additions, unsupported_attributions, unverified_quotes)
+from wewriter.api import (ARTICLE_VOICE, FACTS_FIRST, FIDELITY_RULES, ApiError, Model, changed_sentences,
+                          style_context, unchecked_additions, unsupported_attributions, unverified_quotes)
 from wewriter.config import defaults
 from wewriter.engine import Engine
 from wewriter.ui import export_document, source_website_text
@@ -75,6 +75,13 @@ def package():
     return json.loads(PACKAGE.read_text(encoding='utf-8'))
 
 
+def answers(draft, revised, basis='S1', **by_id):
+    """The second review call's reply: the basis of every change the program numbers between
+    draft and revised (by_id overrides single answers, e.g. C2='无依据')."""
+    changes, _ = changed_sentences(draft, revised)
+    return chat({'answers': [{'id': c['id'], 'basis': by_id.get(c['id'], [basis]), 'note': '改'} for c in changes]})
+
+
 def user_json(payload):
     return json.loads(payload['messages'][1]['content'])
 
@@ -87,7 +94,7 @@ class StyleToReviewTest(unittest.TestCase):
     def setUp(self):
         data = package()
         self.sources, self.config = data['sources'], defaults()
-        self.config.update(data['config'], style='语气克制，多用短段落')
+        self.config.update(data['config'], style='语气克制，多用短段落', draft_first_mode=False)
         self.draft = {'title': '考完这场试', 'outline': ['场景'], 'review_notes': [],
                       'body': '正文[S1]，补充[W1]'}
 
@@ -95,18 +102,18 @@ class StyleToReviewTest(unittest.TestCase):
         transport = SequenceTransport(*responses)
         return Model('deepseek', defaults()['providers']['deepseek'], 'test-only-not-a-key', transport), transport
 
-    def test_review_receives_the_same_style_reference_and_user_style_as_the_draft(self):
+    def test_style_goes_to_the_writer_only(self):
+        # T-029: the writer gets the style card and the user's extra style; the fact review gets none.
         reviewed = {**self.draft, 'quality_notes': ['已对照风格'], 'claim_checks': CHECKS}
         model, transport = self.model(chat(self.draft), chat(reviewed))
         draft = model.write(self.sources, self.config)
         model.review(draft, self.sources, self.config)
         written, review = transport.payloads
-        draft_style = next(s['style_reference'] for s in user_json(written)['sources'] if 'style_reference' in s)
-        review_input = user_json(review)
-        self.assertEqual(review_input['style_reference'], draft_style)
-        self.assertEqual(review_input['style_reference'], self.sources[0]['style_reference'])
-        self.assertEqual(review_input['style'], '语气克制，多用短段落')
-        self.assertEqual(user_json(written)['style'], review_input['style'])
+        self.assertIn('【风格卡】', system_text(written))
+        self.assertEqual(user_json(written)['user_style'], '语气克制，多用短段落')
+        self.assertNotIn('【风格卡】', system_text(review))
+        for key in ('style', 'style_reference', 'recent_drafts', 'structure'):
+            self.assertNotIn(key, user_json(review))
 
     def test_both_passes_put_facts_before_style_and_forbid_report_structure(self):
         reviewed = {**self.draft, 'quality_notes': ['ok'], 'claim_checks': CHECKS}
@@ -115,7 +122,6 @@ class StyleToReviewTest(unittest.TestCase):
         for payload in transport.payloads:
             text = system_text(payload)
             self.assertIn(FACTS_FIRST, text)
-            self.assertIn(ARTICLE_VOICE, text)
         review = system_text(transport.payloads[1])
         self.assertIn('不是正文小标题', review)
         # The old wording that drafts echoed as headings is gone.
@@ -123,14 +129,13 @@ class StyleToReviewTest(unittest.TestCase):
         self.assertNotIn('将原文观点、已核实事实和编辑推断清楚区分', review)
         self.assertNotIn('事实、来源观点与编辑判断要明确区分', system_text(transport.payloads[0]))
 
-    def test_review_without_style_reference_keeps_draft_organisation(self):
+    def test_review_keeps_the_draft_organisation(self):
         sources = [dict(s) for s in self.sources]
         sources[0].pop('style_reference')
         self.assertIsNone(style_context(sources))
         model, transport = self.model(chat({**self.draft, 'quality_notes': ['ok'], 'claim_checks': CHECKS}))
         model.review(self.draft, sources, self.config)
-        self.assertIsNone(user_json(transport.payloads[0])['style_reference'])
-        self.assertIn('没有 style_reference 时保持初稿的组织方式', system_text(transport.payloads[0]))
+        self.assertIn('不调整标题写法、结构和口吻', system_text(transport.payloads[0]))
 
     def test_review_cannot_add_sources_to_follow_a_style(self):
         invented = {**self.draft, 'body': '为了更像参考稿，加了一段采访[S9]', 'quality_notes': ['ok'], 'claim_checks': CHECKS}
@@ -156,65 +161,64 @@ class FidelityTest(unittest.TestCase):
                        '比例、比率的变化不等于人数的变化', '缺少基数时不写绝对人数'):
             self.assertIn(phrase, FIDELITY_RULES)
         review = system_text(transport.payloads[1])
-        self.assertIn('claim_checks', review)
-        self.assertIn('正文中不得出现核对过程', review)
+        self.assertNotIn('claim_checks', review)
+        self.assertIn('程序会自动比对初稿和修订稿', review)
 
-    def test_claim_checks_go_to_internal_notes_not_the_body(self):
-        checks = [{'sentence': '考场外大家都说基本靠蒙', 'evidence': '无', 'action': '删除', 'note': '资料无此场景'},
-                  {'sentence': '报名减少两成而参考率持平，来考的人没少', 'evidence': 'S1：参考率与去年基本持平',
-                   'action': '修正', 'note': '参考人数随报名人数下降'}]
-        model, transport = self.model(chat({**self.draft, 'quality_notes': ['已压缩结尾'], 'claim_checks': checks}))
-        result = model.review(self.draft, self.sources, self.config)
+    def test_the_change_table_is_made_by_the_program_and_stays_out_of_the_body(self):
+        draft = {**self.draft, 'body': '考场外很多人在讨论这张证书。[S1]\n\n补充成绩公布的时间安排。[W1]'}
+        revised = {**draft, 'body': '考场外不少考生在讨论这张证书。[S1]\n\n补充成绩公布的时间安排。[W1]', 'quality_notes': ['已压缩结尾'],
+                   'claim_checks': [{'sentence': '模型自己写的表', 'evidence': '无', 'action': '删除', 'note': '不再使用'}]}
+        model, transport = self.model(chat(revised), answers(draft, revised))
+        result = model.review(draft, self.sources, self.config)
         self.assertNotIn('claim_checks', result)
         self.assertNotIn('逐句核对', result['body'])
-        self.assertEqual(result['quality_notes'][0],
-                         '逐句核对｜删除｜考场外大家都说基本靠蒙｜证据：无｜资料无此场景')
-        self.assertTrue(result['quality_notes'][1].startswith('逐句核对｜修正｜'))
+        self.assertTrue(result['quality_notes'][0].startswith('逐句核对｜修正｜考场外不少考生在讨论这张证书。[S1]｜证据：S1'))
+        self.assertIn('｜初稿：考场外很多人在讨论这张证书。[S1]', result['quality_notes'][0])
+        self.assertFalse(any('模型自己写的表' in n for n in result['quality_notes']))
         self.assertEqual(result['quality_notes'][-1], '已压缩结尾')
-        self.assertEqual(len(transport.payloads), 1)   # still a single review call
+        self.assertEqual(len(transport.payloads), 2)           # revision + basis answers
+        self.assertEqual(user_json(transport.payloads[1])['changes'][0]['id'], 'C1')
+        self.assertNotIn('draft', user_json(transport.payloads[1]))          # the basis call is small
 
-    def test_missing_or_invalid_claim_checks_keep_the_first_draft(self):
-        incomplete = [
-            [{'sentence': '句子', 'action': '改写', 'evidence': '无', 'note': ''}],          # unknown action
-            [{'sentence': '句子', 'action': '保留'}],                                         # evidence, note omitted
-            [{'sentence': '句子', 'action': '保留', 'note': ''}],                             # evidence omitted
-            [{'sentence': '句子', 'action': '保留', 'evidence': '', 'note': ''}],             # evidence blank
-            [{'sentence': '句子', 'action': '保留', 'evidence': 'S1：片段'}],                 # note omitted
-            [{'sentence': '句子', 'action': '保留', 'evidence': ['S1'], 'note': ''}],         # wrong type
-            [{'sentence': '句子', 'action': '删除', 'evidence': '无', 'note': ''}],           # deletion without reason
-            [{'sentence': '', 'action': '保留', 'evidence': '无', 'note': ''}],               # no sentence
-        ]
-        for checks in (None, [], ['不是对象'], *incomplete):
-            reviewed = {**self.draft, 'quality_notes': ['ok']}
-            if checks is not None:
-                reviewed['claim_checks'] = checks
-            model, _ = self.model(chat(reviewed))
-            with self.subTest(checks=checks), self.assertRaisesRegex(ApiError, '逐句核对'):
-                model.review(self.draft, self.sources, self.config)
-
-    def test_explicit_no_evidence_is_accepted_and_shown(self):
-        checks = [{'sentence': '证书仍值得考', 'evidence': '无', 'action': '保留', 'note': ''}]
-        model, _ = self.model(chat({**self.draft, 'quality_notes': [], 'claim_checks': checks}))
+    def test_an_unchanged_revision_needs_no_basis_call(self):
+        model, transport = self.model(chat({**self.draft, 'quality_notes': ['ok']}))
         result = model.review(self.draft, self.sources, self.config)
-        self.assertEqual(result['quality_notes'], ['逐句核对｜保留｜证书仍值得考｜证据：无'])
+        self.assertEqual(len(transport.payloads), 1)
+        self.assertEqual(result['quality_notes'], ['ok'])
 
-    def test_style_reference_and_metadata_are_not_evidence_for_quotes(self):
-        style_only = self.sources[0]['style_reference']['tone']          # exists only in the style analysis
-        body = f'一位考生接受采访时说：“{style_only}”。[S1]'
-        self.assertEqual(unverified_quotes(body, self.sources), [style_only])
-        for meta in (self.sources[0]['title'][3:], self.sources[1]['title'][3:], self.sources[0]['account_name']):
-            self.assertEqual(unverified_quotes(f'有人说：“{meta}”。[S1]', self.sources), [meta])
-        model, _ = self.model(chat({**self.draft, 'body': body + '补充[W1]'}))
-        self.assertTrue(any(style_only[:20] in n for n in model.write(self.sources, self.config)['review_notes']))
+    def test_a_missing_or_invalid_answer_gets_one_fix_and_then_goes_back_to_the_draft(self):
+        draft = {**self.draft, 'body': '示例省今年报名人数减少约两成。[S1]\n\n补充成绩公布的时间安排。[W1]'}
+        revised = {**draft, 'body': '今年全国报名人数翻了一倍。[S1]\n\n补充成绩公布的时间安排。[W1]', 'quality_notes': ['ok']}
+        # missing, invalid number, 无依据, 无需依据 on a sentence with a number, no answers at all
+        for reply in ({'answers': []}, {'answers': [{'id': 'C1', 'basis': ['S9']}]}, {'answers': [{'id': 'C1', 'basis': '无依据'}]},
+                      {'answers': [{'id': 'C1', 'basis': '无需依据'}]}, {'nothing': True}):
+            model, transport = self.model(chat(revised), chat(reply), chat({'fixes': []}))
+            with self.subTest(reply=reply):
+                result = model.review(draft, self.sources, self.config)
+                self.assertEqual(result['body'], draft['body'])               # back to the draft sentence
+                self.assertEqual(len(transport.payloads), 3)
+                self.assertEqual(user_json(transport.payloads[2])['sentences'][0]['id'], 'C1')
+                self.assertTrue(any(n.startswith('二审改动无依据，已回退为初稿原句') for n in result['quality_notes']))
 
-    def test_long_quotes_are_checked_too(self):
-        sources = [dict(s) for s in self.sources]
-        long_quote = '这是一段很长的虚构原话' * 25                                  # 250 characters
-        sources[0]['analysis'] = [dict(sources[0]['analysis'][0],
-                                       facts=[{'claim': '长引语', 'quote': long_quote}])]
-        self.assertEqual(unverified_quotes(f'原文写道：“{long_quote}”[S1]', sources), [])
-        changed = long_quote[:-4] + '另有改动'
-        self.assertEqual(unverified_quotes(f'原文写道：“{changed}”[S1]', sources), [changed])
+    def test_answers_may_come_in_any_order_and_a_valid_fix_is_used(self):
+        draft = {**self.draft, 'body': '第一句原文内容在这里。[S1]\n\n第二句原文内容在这里。[W1]'}
+        revised = {**draft, 'body': '第一句改过的内容在这里。[S1]\n\n第二句改过的内容在这里。[W1]', 'quality_notes': ['ok']}
+        reply = {'answers': [{'id': 'C2', 'basis': ['W1']}, {'id': 'c1', 'basis': '无依据'}]}
+        fix = {'fixes': [{'id': 'C1', 'sentence': '第一句按资料改写在这里。[S1]', 'basis': ['S1']}]}
+        model, transport = self.model(chat(revised), chat(reply), chat(fix))
+        result = model.review(draft, self.sources, self.config)
+        self.assertEqual(result['body'], '第一句按资料改写在这里。[S1]\n\n第二句改过的内容在这里。[W1]')
+        self.assertEqual([s['id'] for s in user_json(transport.payloads[2])['sentences']], ['C1'])
+        lines = [n for n in result['quality_notes'] if n.startswith('逐句核对｜')]
+        self.assertEqual(len(lines), 2)
+        self.assertIn('定向修改后有依据', lines[0])
+
+    def test_an_added_sentence_without_basis_is_removed(self):
+        revised = {**self.draft, 'body': '正文[S1]，补充[W1]\n\n据说今年考生人数翻了一倍。[S1]', 'quality_notes': ['ok']}
+        model, _ = self.model(chat(revised), answers(self.draft, revised, '无依据'), chat({'fixes': [{'id': 'C1', 'sentence': ''}]}))
+        result = model.review(self.draft, self.sources, self.config)
+        self.assertNotIn('翻了一倍', result['body'])
+        self.assertTrue(any(n.startswith('逐句核对｜删除｜') for n in result['quality_notes']))
 
     def test_unverifiable_quotes_are_flagged_and_faithful_quotes_pass(self):
         faithful = '有考生说：“最后半小时普遍来不及做完”。[S1]'
@@ -225,8 +229,8 @@ class FidelityTest(unittest.TestCase):
         model, _ = self.model(chat({**self.draft, 'body': strengthened + '补充[W1]'}))
         draft = model.write(self.sources, self.config)
         self.assertTrue(any('基本靠蒙' in n and '逐字核对' in n for n in draft['review_notes']))
-        model, _ = self.model(chat({**self.draft, 'body': strengthened + '补充[W1]', 'quality_notes': [],
-                                    'claim_checks': CHECKS}))
+        revised = {**self.draft, 'body': strengthened + '补充[W1]', 'quality_notes': []}
+        model, _ = self.model(chat(revised), answers(self.draft, revised))
         reviewed = model.review(self.draft, self.sources, self.config)
         self.assertTrue(any('基本靠蒙' in n for n in reviewed['review_notes']))
         self.assertIn('基本靠蒙', reviewed['body'])   # flagged for a human, not silently rewritten
@@ -249,8 +253,8 @@ class AttributionAndTitleTest(unittest.TestCase):
         model, transport = self.model(chat({**self.draft, 'quality_notes': [], 'claim_checks': [self.TITLE_CHECK]}))
         model.review(self.draft, self.sources, self.config)
         review = system_text(transport.payloads[0])
-        self.assertIn('sentence 以“标题：”开头并写出完整标题', review)
-        self.assertIn('修订时新增或改写的句子也必须列入核对', review)
+        self.assertIn('逐句核对标题、导语', review)
+        self.assertIn('不要输出逐句核对表', review)
         self.assertIn('证据只证明来源说了什么，不证明来源被广泛传播或代表多数人', review)
 
     def test_spread_attention_timing_and_basis_claims_are_flagged(self):
@@ -265,37 +269,27 @@ class AttributionAndTitleTest(unittest.TestCase):
         sources[0]['web_research'] += '该文章在多个平台被转载[W2]。'
         self.assertEqual(unsupported_attributions('该文章被多个平台转载，仍需核实原始口径。', sources), [])
 
-    def test_title_is_checked_by_rules_and_must_be_in_the_review_checks(self):
+    def test_title_is_checked_by_rules_and_a_changed_title_is_numbered(self):
         draft = {**self.draft, 'title': '考生问得最多的三件事'}
-        model, _ = self.model(chat({**draft, 'quality_notes': [], 'claim_checks': CHECKS}))
+        model, _ = self.model(chat({**draft, 'quality_notes': []}))
         result = model.review(draft, self.sources, self.config)
-        self.assertTrue(any(n.startswith('二审逐句核对没有包含标题') for n in result['review_notes']))
         self.assertTrue(any('传播范围、关注度' in n and '考生问得最多的三件事' in n for n in result['review_notes']))
-        # The review renames the title to 考完这场试 and checks both the old and the new title.
-        checks = [{'sentence': '标题：考生问得最多的三件事', 'evidence': '无', 'action': '修正', 'note': '无关注度依据'},
-                  {'sentence': '标题：考完这场试', 'evidence': 'S1：考生反馈', 'action': '保留', 'note': ''}]
-        model, _ = self.model(chat({**self.draft, 'quality_notes': [], 'claim_checks': checks}))
+        # The review renames the title to 考完这场试: the program lists it first, as C1.
+        revised = {**self.draft, 'quality_notes': []}
+        model, transport = self.model(chat(revised), answers(draft, revised))
         result = model.review(draft, self.sources, self.config)
-        self.assertFalse(any(n.startswith('二审逐句核对没有包含标题') for n in result['review_notes']))
+        self.assertEqual(user_json(transport.payloads[1])['changes'][0], {
+            'id': 'C1', 'sentence': '考完这场试', 'draft_sentence': '考生问得最多的三件事'})
+        self.assertTrue(result['quality_notes'][0].startswith('逐句核对｜修正｜标题：考完这场试'))
 
-    def test_a_replaced_title_must_itself_be_checked(self):
+    def test_a_replaced_title_without_basis_goes_back(self):
         draft = {**self.draft, 'title': '考完这场试'}
-        checks = [{'sentence': '标题：考完这场试', 'evidence': 'S1：考生反馈', 'action': '保留', 'note': ''}]
-        model, _ = self.model(chat({**draft, 'title': '全国考生人数翻倍', 'quality_notes': [], 'claim_checks': checks}))
-        notes = model.review(draft, self.sources, self.config)['review_notes']
-        self.assertIn('二审逐句核对没有包含标题，发布前请人工核对标题：全国考生人数翻倍', notes)
-        checks.append({'sentence': '标题：全国考生人数翻倍', 'evidence': '无', 'action': '修正', 'note': '资料无全国人数'})
-        model, _ = self.model(chat({**draft, 'title': '全国考生人数翻倍', 'quality_notes': [], 'claim_checks': checks}))
-        notes = model.review(draft, self.sources, self.config)['review_notes']
-        self.assertFalse(any(n.startswith('二审逐句核对没有包含标题') for n in notes))
-
-    def test_a_checked_clause_does_not_cover_a_longer_sentence(self):
-        draft = '有考生反映计量时间紧。[S1]'
-        extended = '报名人数减少约两成，因此全国培训机构已经倒闭一半。[S1]'
-        checks = [{'sentence': '报名人数减少约两成', 'evidence': 'S1：减少约两成', 'action': '保留', 'note': ''}]
-        self.assertEqual(unchecked_additions(draft, draft + extended, checks), [extended])
-        whole = checks + [{'sentence': extended, 'evidence': '无', 'action': '删除', 'note': '无依据'}]
-        self.assertEqual(unchecked_additions(draft, draft + extended, whole), [])
+        revised = {**draft, 'title': '全国考生人数翻倍', 'quality_notes': []}
+        model, transport = self.model(chat(revised), answers(draft, revised, '无依据'), chat({'fixes': []}))
+        result = model.review(draft, self.sources, self.config)
+        self.assertEqual(result['title'], '考完这场试')
+        self.assertIn('二审改动无依据，已回退为初稿原句：全国考生人数翻倍', result['quality_notes'])
+        self.assertEqual(len(transport.payloads), 3)
 
     def test_sentences_added_by_the_review_must_be_checked(self):
         draft = {**self.draft, 'body': '有考生反映计量时间紧。[S1]补充成绩时间。[W1]'}
@@ -308,17 +302,22 @@ class AttributionAndTitleTest(unittest.TestCase):
         covered = checks + [{'sentence': '报名人数减少约两成', 'evidence': 'S1', 'action': '修正',
                              'note': '改为据公开考试观察记录，报名人数减少约两成'}]
         self.assertEqual(unchecked_additions(draft['body'], final_body, covered), [added])
-        filler = ''.join(f'第{i}句新增的普通过渡文字在这里。' for i in range(8))
-        model, _ = self.model(chat({**draft, 'body': draft['body'] + filler + added, 'quality_notes': [],
-                                    'claim_checks': checks}))
-        notes = model.review(draft, self.sources, self.config)['review_notes']
-        unchecked = [n for n in notes if n.startswith('二审新增或改写的句子')]
-        self.assertEqual(len(unchecked), 5)
-        self.assertIn('最受关注', unchecked[0])     # spread/attention claims are listed first despite the cap
+        # The review adds transitions (no facts) and one unsupported claim: the program numbers all
+        # of them; transitions may be answered 无需依据, the claim is removed after one fix call.
+        filler = ''.join(f'第{n}句新增的普通过渡文字在这里。' for n in '一二三四五六七八')
+        revised = {**draft, 'body': draft['body'] + filler + added, 'quality_notes': []}
+        changes, _ = changed_sentences(draft, revised)
+        self.assertEqual(len(changes), 9)
+        reply = {'answers': [{'id': c['id'], 'basis': '无需依据'} for c in changes[:8]] + [{'id': 'C9', 'basis': '无依据'}]}
+        model, transport = self.model(chat(revised), chat(reply), chat({'fixes': [{'id': 'C9', 'sentence': ''}]}))
+        result = model.review(draft, self.sources, self.config)
+        self.assertNotIn('最受关注', result['body'])
+        self.assertIn('第八句新增的普通过渡文字在这里。', result['body'])
+        self.assertEqual([s['id'] for s in user_json(transport.payloads[2])['sentences']], ['C9'])
 
 
 class EnginePassesStyleTest(unittest.TestCase):
-    def test_single_web_pipeline_gives_review_the_style_it_wrote_with(self):
+    def test_single_web_pipeline_uses_style_card_without_extra_style_analysis(self):
         seen = {}
 
         class Recorder(test_core.FakeModel):
@@ -346,11 +345,12 @@ class EnginePassesStyleTest(unittest.TestCase):
         fixture = test_core.CoreTest()
         fixture.setUp()
         try:
-            fixture.config.update(writing_mode='single_web', min_sources=1, article_limit=1)
+            fixture.config.update(writing_mode='single_web', min_sources=1, article_limit=1,
+                                  draft_first_mode=False)
             engine = Engine(fixture.db, test_core.FakeVault(), source_factory=test_core.FakeSource,
                             model_factory=Recorder, research_factory=Research)
             self.assertIn(engine.run('quality:style', fixture.config), ('已完成', '部分完成'))
-            self.assertIsNotNone(seen['write'])
+            self.assertIsNone(seen['write'])
             self.assertEqual(seen['review'], seen['write'])
         finally:
             fixture.tearDown()
@@ -478,6 +478,7 @@ class BlindGenerationTest(unittest.TestCase):
         self.package = data
         self.config = defaults()
         self.config.update(data['config'])
+        self.config['draft_first_mode'] = False
 
     def tearDown(self):
         self.temp.cleanup()
@@ -511,13 +512,13 @@ class BlindGenerationTest(unittest.TestCase):
         from wewriter import api
         first = self.generate({None: fake_api(), 'rev': fake_api()}, runs=1)
         key1 = json.loads((self.out / 'sealed' / 'blind-key.json').read_text(encoding='utf-8'))
-        original = api.ARTICLE_VOICE
+        original = api.WRITER_RULES
         try:
-            api.ARTICLE_VOICE = original + '（改动）'
+            api.WRITER_RULES = original + '（改动）'
             self.out = self.out.parent / 'run2'
             self.generate({None: fake_api(), 'rev': fake_api()}, runs=1)
         finally:
-            api.ARTICLE_VOICE = original
+            api.WRITER_RULES = original
         key2 = json.loads((self.out / 'sealed' / 'blind-key.json').read_text(encoding='utf-8'))
         self.assertEqual(first['calls_used'], 4)
         self.assertNotEqual({r['prompt_sha256'] for r in key1.values()}, {r['prompt_sha256'] for r in key2.values()})
@@ -534,7 +535,7 @@ class BlindGenerationTest(unittest.TestCase):
         self.generate({None: fake_api(), 'rev': fake_api(voice='旧')}, runs=1)
         sealed = json.loads((self.out / 'sealed' / 'blind-key.json').read_text(encoding='utf-8'))
         for record in sealed.values():
-            self.assertTrue(record['quality_notes'][0].startswith('逐句核对｜保留｜'))
+            self.assertEqual(record['quality_notes'], ['ok'])       # nothing changed: no draft → revision lines
             self.assertIn('正文[S1][W1]', record['draft']['body'])
             self.assertIn('考完这场试', record['draft']['title'])
             self.assertTrue(record['draft']['review_notes'])

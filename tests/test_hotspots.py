@@ -34,7 +34,7 @@ class HotModel(FakeModel):
 
 
 class HotPipelineTest(unittest.TestCase):
-    def test_ranking_style_and_metrics_persist_in_draft(self):
+    def test_ranking_and_metrics_persist_without_extra_style_call(self):
         fixture = test_core.CoreTest()
         fixture.setUp()
         try:
@@ -44,8 +44,8 @@ class HotPipelineTest(unittest.TestCase):
             draft = fixture.db.rows('SELECT * FROM drafts')[0]
             sources = json.loads(draft['sources'])
             self.assertEqual(sources[0]['metrics']['reads'], 2000)
-            self.assertIn('style_reference', sources[0])
-            self.assertIn('风格参考', draft['report'])
+            self.assertNotIn('style_reference', sources[0])
+            self.assertNotIn('风格参考', draft['report'])
         finally:
             fixture.tearDown()
 

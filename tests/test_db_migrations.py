@@ -70,7 +70,7 @@ class MigrationTest(unittest.TestCase):
             raw.execute('PRAGMA user_version=2')
             raw.commit()
         db = Database(path)
-        self.assertEqual(SCHEMA_VERSION, 4)
+        self.assertEqual(SCHEMA_VERSION, 6)
         self.assert_current_schema(path)
         self.assertEqual(db.rows('SELECT run_key, funnel FROM jobs'), [{'run_key': 'run-1', 'funnel': ''}])
         db.update_job(db.rows('SELECT id FROM jobs')[0]['id'], funnel='{"counts": {}}')

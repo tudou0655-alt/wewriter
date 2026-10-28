@@ -20,16 +20,21 @@ from zoneinfo import ZoneInfo
 from . import __version__
 from .api import ApiError, Model, Transport, wechat_url
 from .config import due_key, validate
+from .costs import utility_summary
 from .db import Database
 from .engine import Engine, format_coverage, load_funnel, window_start
 from .logs import logger, redact
+from .anonymity import block_list, hits as leak_hits
+from .pipeline.composition import review_state, unverified_count
 from .ui import (EXPORT_FORMATS, MODEL_OPTIONS, PHASES, RETRYABLE, STYLE_PRESETS, china_time, clipboard_text,
-                 compose_style, draft_hint, job_status_label, phase_index, version_text, write_export, write_report)
+                 compose_style, draft_hint, job_status_label, phase_index, review_marks, version_text, write_export,
+                 write_report)
 from .windows import copy_to_clipboard, set_startup, startup_enabled
 
 CHINA = timezone(timedelta(hours=8))
 WEB_DIR = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent.parent)) / 'wewriter' / 'web'
-KEY_LABELS = {'deepseek': 'DeepSeek', 'openai': 'OpenAI', 'dajiala': '极致了', 'everyinfra': 'EveryInfra'}
+KEY_LABELS = {'deepseek': 'DeepSeek', 'openai': 'OpenAI', 'bailian': '阿里云百炼',
+              'dajiala': '极致了', 'everyinfra': 'EveryInfra'}
 STATE_CLASSES = {'已通过': 'ok', '需修改': 'fix', '待审核': 'wait'}
 
 
@@ -76,6 +81,10 @@ class Backend:
         self.sync = None
         self.window = None
         self.last_message = ''
+        # "补跑二审": the draft being reviewed, and each draft's last outcome until the page reads it.
+        self.review_draft_id = None
+        self.review_results = {}
+        self.style_generating = False
 
     # ------------------------------------------------------------ worker
     def require_live(self):
@@ -169,6 +178,9 @@ class Backend:
                     config = self.db.config()
                     key = due_key(config)
                     if key and not self.db.rows('SELECT id FROM jobs WHERE run_key=?', (key,)):
+                        # A scheduled writing run uses the saved library too. Collection is
+                        # only started through the explicit collection action.
+                        config['task_action'] = 'write'
                         job = self.db.job(key, config)
                         if self.busy:
                             # Scheduled and manual tasks share one execution slot.
@@ -178,6 +190,18 @@ class Backend:
                             self.launch(job)
             except Exception:
                 logger.exception('定时检查异常')
+
+    LEAK_MESSAGE = '稿件中出现了其他公众号名称，导出前请修改或点补跑二审'
+
+    def leaks(self, title, body, sources):
+        """Other WeChat accounts, their post titles or "公众号/推文" wording in a draft (iron rule)."""
+        names = [a['name'] for a in self.db.accounts()]
+        return leak_hits(str(title or '') + '\n' + str(body or ''), block_list(sources, names))
+
+    def refuse_leaks(self, title, body, sources):
+        found = self.leaks(title, body, sources)
+        if found:
+            raise ValueError(self.LEAK_MESSAGE + '（' + '、'.join(f'{k}：{v[:16]}' for k, v in found[:3]) + '）')
 
     def weread_source(self, cancel=None):
         from .weread import WeReadSource
@@ -227,13 +251,14 @@ class Api:
             config = json.loads(job['config'])
         except ValueError:
             config = {}
-        target = int(config.get('draft_count', 3))
+        action = config.get('task_action')
+        target = 0 if action == 'collect' else int(config.get('draft_count', 3))
         running = b.busy and job['id'] == b.current_job_id
         drafts = b.db.task_drafts(job['id'])
         states = [Database.review_state(d['status']) for d in drafts]
         label = job_status_label(job)
         if running:
-            chip, text = 'run', '生成中'
+            chip, text = 'run', '采集中' if action == 'collect' else '生成中'
         elif label == '排队中':
             chip, text = 'stop', '排队中'
         elif states.count('待审核'):
@@ -248,7 +273,8 @@ class Api:
         if not running and job['status'] in ('已完成', '部分完成'):
             step = 4
         return {
-            'id': job['id'], 'chip': chip, 'chip_text': text, 'running': running, 'range': _range_label(config),
+            'id': job['id'], 'chip': chip, 'chip_text': text, 'running': running,
+            'action': action or 'legacy', 'range': '素材库' if action == 'write' else _range_label(config),
             'target': target, 'elapsed': _elapsed(job, running), 'step': step, 'stage': redact(job['stage'] or ''),
             'message': '' if running else redact(job['message'] or '')[:240],
             'waiting': states.count('待审核'), 'passed': states.count('已通过'), 'fix': states.count('需修改'),
@@ -271,15 +297,19 @@ class Api:
             job = rows[0] if rows else None
         summary = self._job_summary(job) if job else None
         if summary:
+            from .costs import summary as cost_summary
+            summary['costs'] = cost_summary(b.db, job['id'])
             hints = {d['id']: draft_hint(d['report']) for d in b.db.rows(
                 'SELECT id,report FROM drafts WHERE id IN (%s)' % ','.join('?' * len(summary['drafts'])),
                 [d['id'] for d in summary['drafts']])} if summary['drafts'] else {}
             for d in summary['drafts']:
                 d['hint'] = hints.get(d['id'], '')
         queued = b.queued()
+        from .pipeline.collect import saved_candidates
+        available = len(saved_candidates(b.db, config))
         return {'accounts': len(b.db.accounts(enabled=True)), 'mode': config.get('lookback_mode', 'rolling'),
                 'hours': int(config.get('lookback_hours', 24)), 'count': int(config.get('draft_count', 3)),
-                'busy': b.busy, 'job': summary, 'queue': len(queued),
+                'available': available, 'busy': b.busy, 'job': summary, 'queue': len(queued),
                 'restored': len([q for q in queued if q['id'] not in b.session_queue]), 'demo': b.demo}
 
     @_safe
@@ -289,12 +319,17 @@ class Api:
         out = []
         for job in rows:
             try:
-                target = json.loads(job['config']).get('draft_count', 3)
+                cfg = json.loads(job['config'])
+                target = 0 if cfg.get('task_action') == 'collect' else cfg.get('draft_count', 3)
             except ValueError:
+                cfg = {}
                 target = 0
             label = job_status_label(job)
             chip = 'done' if job['status'] == '已完成' else 'fail' if job['status'] in ('失败', '已中断') else 'stop'
+            # Drafts produced (batch children included) and drafts a person approved, shown apart.
             out.append({'id': job['id'], 'when': china_time(job['created_at']), 'status': label, 'chip': chip,
+                        'action': cfg.get('task_action', 'legacy'),
+                        'made': len(self._b.db.task_drafts(job['id'])),
                         'ok': self._b.db.qualified_drafts(job['id']), 'target': target})
         return {'total': total, 'per': per, 'rows': out}
 
@@ -302,6 +337,7 @@ class Api:
     def wb_detail(self, job_id):
         db = self._b.db
         job = db.rows('SELECT * FROM jobs WHERE id=?', (int(job_id),))[0]
+        from .costs import summary as cost_summary
         summary = self._job_summary(job)
         funnel = load_funnel(job.get('funnel')) or {'counts': {}, 'accounts': {}}
         c = funnel.get('counts', {})
@@ -342,15 +378,18 @@ class Api:
             alert = '；'.join(redact(str(w)) for w in warnings[:3])
         # 文章库“再写一篇” tasks reuse a chosen article and never collect: no funnel to explain.
         rewrite = str(job['run_key']).startswith('rewrite:')
+        action = summary['action']
         return {'title': '当前任务详情' if summary['running'] else
-                f"{'再写一篇' if rewrite else '任务'} · {china_time(job['created_at'])}", 'rewrite': rewrite,
-                'sub': f"{summary['range']} · 目标 {summary['target']} 篇 · " +
+                f"{'再写一篇' if rewrite else '采集素材' if action == 'collect' else '生成文章' if action == 'write' else '任务'} · {china_time(job['created_at'])}", 'rewrite': rewrite,
+                'action': action,
+                'sub': (f"{summary['range']} · " + ('' if action == 'collect' else f"目标 {summary['target']} 篇 · ")) +
                        (f"正在{PHASES[min(summary['step'], 4)]}" if summary['running'] else job_status_label(job)),
                 'alert': alert, 'has_funnel': bool(c) and not rewrite, 'accounts_n': len(accounts), 'returned': returned,
                 'in_window': max(0, returned - outside), 'outside': outside,
                 'removed': sum(n for n, _ in reasons), 'reasons': [f'{label} {n} 篇' for n, label in reasons],
                 'candidates': c.get('queued', 0), 'picked': picked, 'accounts': accounts,
-                'retryable': summary['retryable'] and not summary['running'], 'running': summary['running']}
+                'retryable': summary['retryable'] and not summary['running'], 'running': summary['running'],
+                'costs': cost_summary(db, job['id'])}
 
     @_safe
     def wb_start(self, mode, count):
@@ -364,6 +403,33 @@ class Api:
                       lookback_hours=hours, writing_mode='separate_web', selection_mode='hot', comments_enabled=False)
         validate(config)
         b.db.save_config(config)        # remembered as the next task's defaults
+        return b.start_task(config)
+
+    @_safe
+    def wb_collect(self, mode):
+        b = self._b
+        b.require_live()
+        if not b.db.accounts(enabled=True):
+            raise ValueError('请先在“公众号”页添加并启用至少一个公众号')
+        config = b.db.config()
+        hours = {'today': 24, '24': 24, '72': 72}.get(str(mode), int(config.get('lookback_hours', 24)))
+        config.update(task_action='collect', lookback_mode='today' if mode == 'today' else 'rolling',
+                      lookback_hours=hours, selection_mode='recent', comments_enabled=False)
+        validate(config)
+        return b.start_task(config)
+
+    @_safe
+    def wb_write(self, count):
+        b = self._b
+        b.require_live()
+        config = b.db.config()
+        config.update(task_action='write', draft_count=int(count), writing_mode='separate_web',
+                      selection_mode='hot', comments_enabled=False)
+        validate(config)
+        from .pipeline.collect import saved_candidates
+        available = len(saved_candidates(b.db, config))
+        if available < config['draft_count']:
+            raise ValueError(f'素材库现有 {available} 篇可选且未写过的文章，少于目标 {config["draft_count"]} 篇；请先采集素材、降低篇数或调整阅读量门槛')
         return b.start_task(config)
 
     @_safe
@@ -408,7 +474,9 @@ class Api:
     def wb_recollect(self):
         b = self._b
         b.require_live()
-        return b.start_task(b.db.config())
+        config = b.db.config()
+        config.update(task_action='collect', selection_mode='recent')
+        return b.start_task(config)
 
     # ------------------------------------------------------------ accounts
     def _account_details(self):
@@ -662,12 +730,62 @@ class Api:
             parts = line[len('【人工审核记录】'):].split(' · ')
             log.append([china_time(parts[0]) if parts else '', parts[1] if len(parts) > 1 else '',
                         ' · '.join(parts[2:]) if len(parts) > 2 else ''])
+        # Reviewer hints placed on the paragraphs they concern, so the page can mark them in red.
+        marks, unplaced = review_marks(d['title'], d['body'], d['report'])
+        flag = draft_hint(d['report'])
+        if flag == '有事实或质量提示待核实' and not marks and not unplaced:
+            flag = ''       # every hint was a source check the program handles, or no longer applies
         versions = [[v['revision'], china_time(v['created_at'])] for v in db.rows(
             'SELECT revision,created_at FROM draft_versions WHERE draft_id=? ORDER BY revision DESC', (d['id'],))]
+        leaks = self._b.leaks(d['title'], d['body'], sources)
         return {'id': d['id'], 't': d['title'], 's': Database.review_state(d['status']), 'when': china_time(d['updated_at']),
-                'rev': d['revision'], 'body': d['body'], 'flag': draft_hint(d['report']), 'sources': src,
+                'leaks': [f'{kind}：{text}' for kind, text in leaks],
+                'rev': d['revision'], 'body': d['body'], 'flag': flag, 'sources': src,
                 'machine': machine_text, 'log': log, 'versions': versions,
-                'words': len(re.sub(r'\s|\[[SW]\d+\]|[#>*]', '', d['body'] or ''))}
+                'marks': {str(k): v for k, v in marks.items()}, 'unplaced': unplaced,
+                'words': len(re.sub(r'\s|\[[SW]\d+\]|[#>*]', '', d['body'] or '')),
+                'review': review_state(d['report']), 'unverified': unverified_count(d['report']),
+                'review_running': self._b.review_draft_id == d['id'],
+                'review_result': self._b.review_results.pop(d['id'], None)}
+
+    @_safe
+    def dr_rereview(self, draft_id):
+        """Re-run the AI review of a draft whose review failed or never ran, on the worker thread."""
+        b = self._b
+        b.require_live()
+        draft_id = int(draft_id)
+        with b.lock:
+            if b.review_draft_id is not None:
+                raise ValueError('正在补跑二审，请等它完成')
+            if b.busy and b.engine.cancel.is_set():
+                # A stopped task can take a few seconds to close its browser session.
+                raise ValueError('上一个任务正在停止，请过几秒再点“补跑二审”')
+            b.require_idle()
+            if b.db.rows("SELECT id FROM jobs WHERE status='运行中' LIMIT 1"):
+                raise ValueError('有任务正在运行，请等它完成后再补跑二审')
+
+            def action():
+                try:
+                    revision = b.engine.rerun_review(draft_id)
+                    b.review_results[draft_id] = {'ok': True, 'text': f'二审已完成，已保存为第 {revision} 版（旧版本保留）'}
+                    logger.info('补跑二审完成：稿件 %s，第 %s 版', draft_id, revision)
+                    return b.review_results[draft_id]['text']
+                except Exception as exc:
+                    b.review_results[draft_id] = {'ok': False,
+                                                  'text': '补跑二审未完成，稿件未改动：' + (redact(str(exc)) or type(exc).__name__)}
+                    logger.warning('补跑二审未完成：稿件 %s：%s', draft_id, redact(str(exc)) or type(exc).__name__)
+                    raise
+                finally:
+                    b.review_draft_id = None
+            b.review_draft_id = draft_id
+            b.current_job_id = None     # the workbench must not show an old task as running
+            try:
+                b.start_worker(action)
+            except ValueError:
+                b.review_draft_id = None
+                raise
+        logger.info('补跑二审开始：稿件 %s', draft_id)
+        return {}
 
     @_safe
     def dr_save(self, draft_id, title, body):
@@ -689,6 +807,7 @@ class Api:
             sources = json.loads(d[0]['sources'])
         except ValueError:
             sources = []
+        self._b.refuse_leaks(d[0]['title'], d[0]['body'], sources)
         text, html = clipboard_text(d[0]['title'], d[0]['body'], sources)
         # 'text' lets the page fall back to the browser clipboard when Windows refuses.
         return {'copied': copy_to_clipboard(text, html), 'text': text, 'chars': len(re.sub(r'\s', '', text))}
@@ -700,6 +819,8 @@ class Api:
         if fmt not in EXPORT_FORMATS:
             raise ValueError('导出格式无效')
         d = b.db.rows('SELECT * FROM drafts WHERE id=?', (int(draft_id),))[0]
+        if kind != 'report':        # the material report is internal and may name the sources
+            b.refuse_leaks(d['title'], d['body'], json.loads(d['sources'] or '[]'))
         name = re.sub(r'[\\/:*?"<>|]+', '-', ('素材报告-' if kind == 'report' else '') + d['title'])[:80] + '.' + fmt
         folder = b.db.config().get('export_dir') or ''
         if folder and Path(folder).is_dir():
@@ -727,15 +848,21 @@ class Api:
         preset = c.get('style_preset') or next((n for n, t in STYLE_PRESETS.items() if t == c['style']), '')
         return {
             'writer_model': c['providers'][writer]['model'], 'summary_provider': c['summary_provider'],
-            'summary_model': c['providers'][c['summary_provider']]['model'], 'search_model': c['search_model'],
+            'summary_model': c.get('summary_model') or c['providers'][c['summary_provider']]['model'],
+            'search_provider': c['search_provider'], 'search_model': c['search_model'],
             'openai_url': c['providers']['openai']['base_url'], 'deepseek_url': c['providers']['deepseek']['base_url'],
+            'bailian_url': c['providers']['bailian']['base_url'],
             'words': c['target_words'], 'style_preset': preset,
             'style_custom': '' if preset else c['style'], 'style_extra': c.get('style_extra', ''),
             'export_format': c.get('export_format', 'docx'), 'export_dir': c.get('export_dir', ''),
             'schedule_enabled': c['schedule_enabled'], 'schedule_time': c['schedule_time'],
-            'review': c['quality_review_enabled'], 'vision': c.get('image_articles') == 'vision',
+            'review': c['quality_review_enabled'], 'verify': c.get('auto_verify', True),
+            'draft_first': c.get('draft_first_mode', True),
+            'vision': c.get('image_articles') == 'vision',
             'recollect': c['allow_recollect_cleared'], 'startup': startup_enabled(),
             'limit': c['per_account_limit'], 'min_reads': c['min_reads'],
+            'max_paid_requests': c.get('max_paid_requests'),
+            'utility_costs': utility_summary(b.db),
             'keys': {name: b.vault.has(name) for name in KEY_LABELS}, 'models': MODEL_OPTIONS,
             'version': version_text(), 'data_dir': str(b.data_dir), 'presets': list(STYLE_PRESETS)}
 
@@ -747,25 +874,37 @@ class Api:
         model = str(v['writer_model']).strip()
         if not model:
             raise ValueError('请选择或填写写作模型')
-        writer = 'deepseek' if model.lower().startswith('deepseek') else 'openai'
+        writer = ('deepseek' if model.lower().startswith('deepseek') else
+                  'bailian' if model.lower().startswith('qwen') else 'openai')
         c['writer_provider'] = writer
         c['providers'][writer]['model'] = model
         summary_model = str(v['summary_model']).strip()
-        summary = 'deepseek' if summary_model.lower().startswith('deepseek') else 'openai'
-        if summary != writer or summary_model == model:
+        summary = ('deepseek' if summary_model.lower().startswith('deepseek') else
+                   'bailian' if summary_model.lower().startswith('qwen') else 'openai')
+        if summary != writer:
             c['providers'][summary]['model'] = summary_model
-        elif summary_model != model:
-            raise ValueError('写作和摘要都用同一家服务商时只能选同一个模型；请把摘要模型换成另一家的，或与写作模型一致')
         c['summary_provider'] = summary
+        c['summary_model'] = summary_model
+        c['search_provider'] = str(v.get('search_provider') or 'deepseek')
         c['search_model'] = str(v['search_model']).strip()
+        c['search_url'] = {'deepseek': 'https://api.deepseek.com/v1/tools/search',
+                           'openai': 'https://api.openai.com/v1/responses',
+                           'bailian': 'https://dashscope.aliyuncs.com/compatible-mode/v1/responses'}.get(
+                               c['search_provider'], '')
         c['providers']['openai']['base_url'] = str(v['openai_url']).strip().rstrip('/')
         c['providers']['deepseek']['base_url'] = str(v['deepseek_url']).strip().rstrip('/')
+        c['providers']['bailian']['base_url'] = str(v.get('bailian_url') or
+            'https://dashscope.aliyuncs.com/compatible-mode/v1').strip().rstrip('/')
+        if c['search_provider'] == 'bailian':
+            c['search_url'] = c['providers']['bailian']['base_url'] + '/responses'
         try:
             c['target_words'] = int(str(v['words']).strip())
             c['per_account_limit'] = int(str(v['limit']).strip())
             c['min_reads'] = int(str(v['min_reads']).strip())
+            cap = str(v.get('max_paid_requests') or '').strip()
+            c['max_paid_requests'] = int(cap) if cap else None
         except ValueError:
-            raise ValueError('篇幅、读取上限和最低阅读量需要填写整数') from None
+            raise ValueError('篇幅、读取上限、最低阅读量和付费请求上限需要填写整数') from None
         preset = str(v.get('style_preset') or '')
         c['style_preset'] = preset if preset in STYLE_PRESETS else str(v.get('style_custom') or '').strip()
         c['style_extra'] = str(v.get('style_extra') or '').strip()
@@ -776,6 +915,8 @@ class Api:
         c['export_dir'] = str(v.get('export_dir') or '')
         c['schedule_time'] = str(v['schedule_time']).strip()
         c['quality_review_enabled'] = bool(v['review'])
+        c['auto_verify'] = bool(v.get('verify', True))
+        c['draft_first_mode'] = bool(v.get('draft_first', True))
         c['image_articles'] = 'vision' if v['vision'] else 'skip'
         c['allow_recollect_cleared'] = bool(v['recollect'])
         c['comments_enabled'] = False
@@ -814,7 +955,10 @@ class Api:
             provider = c['writer_provider']
             settings = c['providers'][provider]
             try:
-                Model(provider, settings, b.vault.get(provider), Transport()).complete(
+                from .costs import CostMeter, UtilityFunnel
+                transport = Transport()
+                transport.cost_meter = CostMeter(UtilityFunnel(b.db))
+                Model(provider, settings, b.vault.get(provider), transport).complete(
                     '只输出 JSON 对象 {"ok":true}', '测试连接，输出 JSON', tokens=128)
                 result['model'] = {'ok': True, 'text': f"正常 · {settings['model']}"}
             except Exception as exc:
@@ -886,11 +1030,103 @@ class Api:
         os.startfile(self._b.data_dir)
         return {}
 
+    # ------------------------------------------------------------ style (T-029)
+    @_safe
+    def ex_list(self):
+        """Example library and the style card in use."""
+        from .style import DEFAULT_STYLE_CARD, card_text
+        b = self._b
+        card = b.db.config().get('style_card')
+        return {'examples': [{'id': e['id'], 'kind': e['kind'], 'title': e['title'], 'score': e['score'],
+                              'avoid': e['avoid'], 'chars': len(e['body']), 'origin': e['origin'],
+                              'when': china_time(e['created_at'])} for e in b.db.examples()],
+                'card': card or DEFAULT_STYLE_CARD, 'card_is_default': not card, 'card_text': card_text(card),
+                'generating': b.style_generating}
+
+    @_safe
+    def ex_add(self, title, body, kind='good', score=None, avoid=''):
+        score = int(score) if str(score or '').strip().isdigit() else None
+        return {'id': self._b.db.add_example(str(title or ''), str(body or ''), kind, score, str(avoid or ''), '粘贴')}
+
+    @_safe
+    def ex_import(self, kind='good'):
+        """Import an example from a .docx, .md or .txt file chosen by the user."""
+        import webview
+        from .style import read_example_file
+        b = self._b
+        chosen = b.window.create_file_dialog(webview.FileDialog.OPEN, file_types=(EXAMPLE_FILTER,))
+        if not chosen:
+            return {'cancelled': True}
+        path = Path(chosen if isinstance(chosen, str) else chosen[0])
+        title, body, meta = read_example_file(path)
+        score = int(meta['score']) if str(meta.get('score', '')).isdigit() else None
+        kind = meta.get('kind') if meta.get('kind') in ('good', 'bad') else kind
+        return {'id': b.db.add_example(title, body, kind, score, meta.get('avoid', ''), '导入：' + path.name),
+                'title': title}
+
+    @_safe
+    def ex_delete(self, example_id):
+        self._b.db.delete_example(int(example_id))
+        return {}
+
+    @_safe
+    def style_save(self, card):
+        """Save a style card edited on the settings page (None restores the built-in default)."""
+        from .style import valid_style_card
+        b = self._b
+        if card is not None and not valid_style_card(card):
+            raise ValueError('风格卡每一项都要填写，禁忌和对照示例至少各一条')
+        config = b.db.config()
+        config['style_card'] = card
+        b.db.save_config(config)
+        return {}
+
+    @_safe
+    def style_generate(self):
+        """Distil a new style card from the whole example library (one paid writing-model call)."""
+        b = self._b
+        b.require_live()
+        examples = b.db.examples()
+        if not any(e['kind'] == 'good' for e in examples):
+            raise ValueError('范文库里还没有范文，先添加至少一篇')
+
+        def action():
+            b.style_generating = True
+            try:
+                config = b.db.config()
+                name = config['writer_provider']
+                from .costs import CostMeter, UtilityFunnel
+                transport = Transport(b.engine.cancel)
+                transport.cost_meter = CostMeter(UtilityFunnel(b.db))
+                card = Model(name, config['providers'][name], b.vault.get(name), transport).style_card(examples)
+                config = b.db.config()
+                config['style_card'] = card
+                b.db.save_config(config)
+                logger.info('风格卡已根据 %s 篇范文重新生成', len(examples))
+                return '风格卡已更新'
+            finally:
+                b.style_generating = False
+        b.current_job_id = None
+        b.start_worker(action)
+        return {}
+
+    @_safe
+    def dr_mark_example(self, draft_id, kind, note='', score=None):
+        """Add a draft to the example library as an example ('good') or counter-example ('bad')."""
+        b = self._b
+        d = b.db.rows('SELECT title, body FROM drafts WHERE id=? AND cleared=0', (int(draft_id),))
+        if not d:
+            raise ValueError('稿件不存在或已清理')
+        body = re.sub(r'\[[SW]\d+\]', '', d[0]['body'])
+        score = int(score) if str(score or '').strip().isdigit() else None
+        return {'id': b.db.add_example(d[0]['title'], body, kind, score, str(note or ''), f'稿件 #{int(draft_id)}')}
+
 
 # Save-dialog filters. pywebview accepts only letters, digits and spaces before "(*.ext)", so the
 # full-width brackets of the on-page labels (“Word（.docx）”) would make every export fail.
 DIALOG_FILTERS = {'docx': 'Word 文档 (*.docx)', 'md': 'Markdown 文件 (*.md)', 'txt': '纯文本 (*.txt)'}
 BACKUP_FILTER = 'SQLite 备份 (*.sqlite)'
+EXAMPLE_FILTER = 'Word or Markdown (*.docx;*.md;*.txt)'
 
 
 def window_background(theme):

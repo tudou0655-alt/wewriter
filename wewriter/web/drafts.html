@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <script>/* Theme before first paint, so a forced light/dark choice never flashes the other one. */
-try { var t = sessionStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
+try { var t = sessionStorage.getItem('theme'); document.documentElement.dataset.theme = t === 'dark' ? 'dark' : t === 'light' ? 'light' : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) {}</script>
 <style>
 /* Page changes cross-fade instead of blanking; the sidebar is matched so it stays put. */
 @view-transition { navigation: auto; }
@@ -15,8 +15,6 @@ try { var t = sessionStorage.getItem('theme'); if (t === 'light' || t === 'dark'
 @media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
 </style>
 <title>WeWriter 稿件库</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap" media="print" onload="this.media='all'">
 <style>
 /* Layout: list view and a manuscript view in the same column; the manuscript reads like a printed page. */
 :root {
@@ -108,6 +106,7 @@ h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacin
 .sheet h2 { font-family: var(--font-display); font-size: 26px; line-height: 1.4; margin: 0 0 8px; text-wrap: balance; }
 .byline { color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; display: flex; gap: 14px; flex-wrap: wrap; }
 .warnline { margin-top: 14px; background: var(--amber-soft); color: var(--amber); border-radius: 8px; padding: 9px 12px; font-size: 13px; }
+.reviewline { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .okline { margin-top: 14px; background: var(--jade-soft); color: var(--jade); border-radius: 8px; padding: 9px 12px; font-size: 13px; }
 /* Reading width grows with the window (about 38em on a laptop, up to 64em full screen). */
 .prose { margin-top: 22px; font-size: clamp(15.5px, 9px + .45vw, 17.5px); line-height: 1.95; max-width: min(100%, 64em); }
@@ -119,6 +118,10 @@ h1 { font-family: var(--font-display); font-size: 30px; margin: 0; letter-spacin
 .prose p { margin: 0 0 1.1em; }
 .prose h3 { font-family: var(--font-display); font-size: 18px; margin: 1.6em 0 .6em; }
 .prose blockquote { margin: 0 0 1.1em; padding: 2px 0 2px 14px; border-left: 3px solid var(--rule); color: var(--ink-2); }
+/* Paragraphs a reviewer hint points at: red edge and tint, the hint itself underneath. */
+.verify { border-left: 3px solid var(--cinnabar); background: var(--cinnabar-soft); border-radius: 0 8px 8px 0; padding: 8px 12px 2px; margin: 0 0 1.1em; }
+.verify > :is(p, ul, ol, table, blockquote, h2, h3) { margin-bottom: .5em; }
+.verify-note, .prose .verify-note { list-style: none; margin: 0 0 6px; padding: 0; color: var(--cinnabar); font-size: 13px; line-height: 1.6; }
 .cite { font-size: 11px; vertical-align: super; color: var(--jade); margin-left: 1px; cursor: help; }
 .edit-title { font-family: var(--font-display); font-size: 24px; font-weight: 700; width: 100%; border: 1px solid var(--rule); border-radius: 8px; padding: 8px 12px; background: var(--field); }
 textarea.edit-body { width: 100%; min-height: 420px; margin-top: 14px; border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; background: var(--field); font-size: 15px; line-height: 1.9; resize: vertical; }
@@ -164,9 +167,13 @@ h5 { font-size: 13px; margin: 16px 0 0; font-weight: 700; }
 }
 </style>
 
+<link rel="stylesheet" href="styles/tokens.css">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/components.css">
+<link rel="stylesheet" href="styles/pages/drafts.css">
 <div class="app">
   <aside class="rail">
-    <div class="brand"><b>WeWriter</b><span>公众号内容工作台</span></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true">W</span><div class="brand-copy"><b>WeWriter</b><span>内容创作工作室</span></div></div>
     <nav class="nav" aria-label="页面" id="nav"></nav>
     <div class="foot" id="foot"></div>
   </aside>

@@ -1,11 +1,11 @@
 # Current handoff — T-008 文章质量（Claude → Codex 只读审查）
 
-## T-056 当前代码、界面与 README 同步 GitHub（Codex，2026-10-28，进行中）
+## T-056 当前代码、界面与 README 同步 GitHub（Codex，2026-10-28，done）
 
 - 人工明确要求把当前代码和界面同步到 GitHub 并更新 README。旧 REQUIREMENTS/PLAN 顶部仍以 T-007 为当前任务且禁止提交，与当前任务板及本轮人工要求冲突；已在动手前告知人工，按本轮明确授权执行。先检查 Git 状态、当前分支与 `origin/main`，远端抓取成功且与本机 main 一致。原 `codex/t001-github` HEAD 与 main 文件树一致，已保留全部未提交改动切换到 main。
 - README 现按当前代码说明双入口工作台、默认草稿优先、DeepSeek 默认搜索、极致了采集、按请求计费与已知限制；旧版本说明标为历史记录。`.gitignore` 加入 `tmp/`、`output/`，避免本机临时数据库和私人输出误入提交。提交范围仅源码、测试、界面资源与相关协作文档，不含运行数据库、构建包、临时输出、个人文件或凭据。
 - 已运行：`git diff --check` 退出码 0（四处既有 LF/CRLF 提示）；`scripts/verify_delivery.py` 6/6 通过；主要 6 个前端 JS 的 `node --check` 通过。全量 `unittest discover -s tests -v` 在本机 Playwright 浏览器启动前停滞，人工中止；排除 `test_drafts_page.py`、`test_ui_shell.py` 后 499 项离线测试结束，8 失败、1 错误。失败项涉及旧续跑预期、关键事实缓存/查证、旧引用修复预期、历史计数和 T-013 旧提示词断言；尚未逐项修复，不能宣称测试通过。README 已如实注明本次结果。真实接口和客户 GUI 未运行。
-- 下一步：核对待提交文件清单及敏感信息，提交并推送 `main`；记录提交号与远端状态。上述测试失败留为后续独立修复任务，不能把本次同步当作正式质量验收。
+- 已核对 84 个待提交文件：源码、测试、界面资源、README 与协作文档；候选密钥扫描只命中既有测试里的显式虚构值，未暂存 `tmp/`、`output/`、`.local-data/`、`dist/` 或凭据。主体提交 `3fa0081` 已推送到 `origin/main`（远端从 `10a710f` 更新）；本段完成记录另随协作文档提交。上述测试失败留为后续独立修复任务，不能把本次同步当作正式质量验收。
 
 ## T-055 旧包清理（Codex，2026-10-28，done）
 

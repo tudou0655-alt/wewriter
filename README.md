@@ -47,7 +47,7 @@ flowchart LR
 
 此 GIF 由**实际运行的 WeWriter v0.10.4 演示模式页面截图**组成，保留程序真实布局与控件；只使用内置虚构公众号、文章和稿件名称。演示模式使用独立数据库，不调用采集服务或模型接口。可单独查看[文章库真实界面](docs/showcase/screenshots/articles.png)和[文章详情真实界面](docs/showcase/screenshots/article-detail.png)。
 
-Windows 包由提交 `11c1064` 的干净源码构建，内含 EXE、安装脚本、README 和构建清单；SHA-256：`00651127A989955B72E94865DF341823964598A85D96E4BEFBE4B6C4129FB5ED`。该包未签名，正式客户分发前仍需处理 Windows 签名与客户机验收。
+Windows 包由提交 `ecbd430` 的干净源码构建，内含 EXE、安装脚本、README 和构建清单；SHA-256：`E8512AA3CB5CAD8B198B798CEECFD25B8516494C41F40E5974F04435217378EF`。该包未签名，正式客户分发前仍需处理 Windows 签名与客户机验收。
 
 ## 详细文档
 

@@ -114,6 +114,28 @@ class DraftsPageBrowserTest(unittest.TestCase):
         self.page.wait_for_selector('#review-note', timeout=15000)
         self.assertIn('二审已完成，已保存为第 2 版', self.page.text_content('#review-note'))
 
+    def test_reference_panel_counts_current_body_and_separates_unused_sources(self):
+        import json
+        did = self.draft['id']
+        ids = ('S1','S2','S10','W2')
+        sources = [{'source_id':k,'title':'来源'+k,'url':''} for k in ids]
+        self.f.db.execute('UPDATE drafts SET body=?,sources=? WHERE id=?',
+                          ('结论。[S1][W2] 另一处。[S1]',json.dumps(sources),did))
+        self.open_draft()
+        refs = self.page.locator('.cited-sources')
+        refs.evaluate("el => el.closest('details').open = true")
+        self.assertEqual(refs.locator('li b').all_text_contents(), ['S1','W2'])
+        self.assertIn('2 处标注',refs.locator('li').first.inner_text())
+        rest = self.page.locator('.uncited-sources')
+        self.assertFalse(rest.locator('li').first.is_visible())
+        rest.locator('summary').click()
+        self.assertEqual(rest.locator('li b').all_text_contents(), ['S2','S10'])
+        self.page.locator('#edit').click()
+        self.page.locator('#e-body').fill('修订稿只标这个来源。[S10]')
+        self.page.locator('#save').click()
+        self.page.wait_for_function("document.querySelector('.cited-sources li b')?.textContent === 'S10'")
+        self.assertEqual(refs.locator('li b').all_text_contents(), ['S10'])
+
     def test_a_refusal_stays_visible(self):
         self.open_draft()
         self.backend.busy = True

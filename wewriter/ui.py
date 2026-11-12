@@ -202,8 +202,6 @@ def export_document(title, body, sources, markdown=True):
               and not is_wechat(s.get('url'))]
     by_id = {str(s.get('source_id')): s for s in public}
     selected = [by_id[sid] for sid in cited if sid in by_id]
-    if not selected:
-        selected = [s for s in public if s.get('url')]
     unique, seen = [], set()
     for source in selected:
         url = str(source.get('url') or '').strip()

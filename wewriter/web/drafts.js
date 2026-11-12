@@ -147,6 +147,25 @@ async function leave(next) {
 $('back').addEventListener('click', () => leave(() => { ui.open = null; $('v-draft').hidden = true; $('v-list').hidden = false; loadList(); }));
 window.addEventListener('beforeunload', e => { if (ui.dirty) { e.preventDefault(); e.returnValue = ''; } });
 
+function sourceReferences(sources, body) {
+  const counts = new Map();
+  for (const [, id] of body.matchAll(/\[([SW]\d+)\]/g)) counts.set(id, (counts.get(id) || 0) + 1);
+  const cited = [], other = [];
+  for (const [id, title, info] of sources) {
+    const count = counts.get(id) || 0;
+    const row = '<li><b>' + esc(id) + '</b><span>' + esc(title) +
+      '<small>' + (count ? count + ' 处标注 · ' : '') + esc(info) + '</small></span></li>';
+    (count ? cited : other).push(row);
+    counts.delete(id);
+  }
+  const unknown = [...counts.keys()];
+  return '<h5>正文已标注的来源（' + cited.length + '）</h5>' +
+    (cited.length ? '<ul class="src cited-sources">' + cited.join('') + '</ul>' : '<p class="note">正文没有与已记录来源对应的标注。</p>') +
+    (unknown.length ? '<p class="note">正文标注缺少来源记录：' + esc(unknown.join('、')) + '</p>' : '') +
+    (other.length ? '<details class="uncited-sources"><summary>其他备查来源（' + other.length + '，正文未标注）</summary><ul class="src">' +
+      other.join('') + '</ul></details>' : '');
+}
+
 function renderDraft() {
   const d = ui.open, st = d.s;
   $('pill').className = 'pill ' + pillCls(st);
@@ -212,7 +231,7 @@ function renderDraft() {
     <div id="inline"></div>
     <details class="more"><summary>来源与审核提示</summary>
       ${unplaced.length ? `<h5>没有对应到具体段落的审核提示</h5><ul class="verify-note">${unplaced.map(h => `<li>${esc(h)}</li>`).join('')}</ul>` : ''}
-      <h5>来源对应关系</h5>${d.sources.length ? `<ul class="src">${d.sources.map(([k, t, m]) => `<li><b>${esc(k)}</b><span>${esc(t)}<small>${esc(m)}</small></span></li>`).join('')}</ul>` : '<div class="note">没有记录来源。</div>'}
+      ${sourceReferences(d.sources, d.body)}
       <h5>素材报告与机器审核提示（保留原记录，不会因人工审核被清除）</h5>
       <div class="note" style="white-space: pre-wrap; max-height: 320px; overflow-y: auto; margin-top: 8px; background: var(--ground); padding: 10px 12px; border-radius: 8px">${esc(d.machine || '没有机器审核提示')}</div>
       <h5>人工审核记录</h5><ul class="log">${log}</ul>

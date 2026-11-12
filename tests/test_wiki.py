@@ -89,6 +89,17 @@ class WikiTest(unittest.TestCase):
             self.assertEqual('提供给模型参考' in draft['report'], enabled)
             self.assertEqual(len(json.loads(draft['sources'])), 4 if enabled else 1)
 
+
+    def test_incidental_summary_matches_are_not_wiki_evidence(self):
+        source = {'article_id': 1, 'title': '专项计划还需要编吗？',
+                  'analysis': [{'summary':'某示例委员会审议涉及15项规则的修订，调整基层专项规划编制要求。'}]}
+        add_note(self.db,'人事任免','人员公告','某示例委员会决定任命新委员。')
+        add_note(self.db,'15亿元补贴','资金简报','15亿元分期拨付。')
+        add_note(self.db,'城市更新','采购公告','供应商须持规划编制资质。')
+        self.assertEqual(retrieve(self.db,'',[source]), [])
+        add_note(self.db,'专项规划','试点指南','基层专项规划编制前，先核对法定编制要求。')
+        self.assertEqual([hit['title'] for hit in retrieve(self.db,'',[source])], ['试点指南'])
+
     def test_import_keeps_word_tables_and_markdown_text(self):
         import docx
         path = Path(self.temp.name) / '试点.docx'

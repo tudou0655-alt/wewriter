@@ -1,7 +1,7 @@
 """公众号工作台 — local-first Windows application."""
 # Single version source: scripts/build.ps1, scripts/build_to_desktop.cmd, the UI and
 # scripts/verify_delivery.py all read this value; never repeat it elsewhere.
-__version__ = "0.10.6"
+__version__ = "0.10.7"
 # Written by scripts/build.ps1 (via scripts/verify_delivery.py) and bundled into the EXE.
 BUILD_INFO_NAME = 'build-info.json'
 

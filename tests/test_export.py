@@ -28,6 +28,12 @@ class ExportTest(unittest.TestCase):
         self.assertNotIn('[S2]', result)
         self.assertNotIn('](http', result)
 
+    def test_uncited_websites_are_not_published_as_references(self):
+        for body in ('只有原文标记。[S2]', '没有标记的正文。'):
+            with self.subTest(body=body):
+                self.assertNotIn('https://', export_document('标题',body,self.sources))
+                self.assertNotIn('https://', source_website_text(body,self.sources))
+
     def test_website_view_uses_cited_sources(self):
         result = source_website_text('正文[W2]', self.sources)
         self.assertIn('https://gov.example/policy', result)

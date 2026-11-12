@@ -447,7 +447,7 @@ def write_one(engine, ctx, selected):
     ctx.funnel.save()
     status = "部分完成" if ctx.warnings else "已完成"
     engine.db.update_job(job["id"], stage="完成", status=status, error_code='',
-                         message=f"已生成 1 篇草稿，使用 {len(sources)} 篇素材，请人工审核")
+                         message=f"已生成 1 篇草稿，记录了 {len(sources)} 个来源，请人工审核")
     engine.notify("稿件已保存，可在稿件工作台查看与编辑")
     return status
 

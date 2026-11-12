@@ -95,7 +95,7 @@ def terms(text):
     result = set()
     for word in re.findall(r'[\u3400-\u9fff]+|[a-z0-9]+', text.casefold()):
         if word.isascii() or len(word) == 2:
-            if len(word) >= 2:
+            if len(word) >= 2 and not word.isdecimal():
                 result.add(word)
         else:
             result.update(word[i:i+3] for i in range(len(word)-2))
@@ -140,8 +140,10 @@ def compile_page(db, topic, model):
 
 
 def retrieve(db, topic, sources):
-    query = ' '.join([topic or ''] + [s['title'] for s in sources] +
-                     [str(p.get('summary') or '')[:150] for s in sources for p in s.get('analysis', [])])
+    focus = ' '.join([topic or ''] + [s['title'] for s in sources])
+    query = ' '.join([focus] + [str(p.get('summary') or '')[:150]
+                               for s in sources for p in s.get('analysis', [])])
+    focus_terms = terms(focus)
     wanted = terms(query)
     excluded = {s.get('article_id') for s in sources}
     urls = {s['url'] for s in sources if s.get('url')}
@@ -155,26 +157,32 @@ def retrieve(db, topic, sources):
                                   WHERE w.article_id IS NULL OR a.cleared=0 ORDER BY w.id'''):
             if row['article_id'] and (row['article_id'] in excluded or row['url'] in urls):
                 continue
-            topic_match = row['topic'].casefold() in query.casefold()
-            shared = len(terms(row['topic']) & wanted)
+            topic_terms = terms(row['topic'])
+            topic_match = bool(topic_terms) and row['topic'].casefold() in query.casefold()
+            shared = topic_terms & wanted
+
+            def relevance(text):
+                overlap = terms(text) & wanted
+                # A summary can mention a public body, amount or side issue. Its words
+                # alone do not establish that a different source is about this story.
+                if not (topic_match or (shared and overlap and len(shared | overlap) >= 2)
+                        or len(overlap & focus_terms) >= 3):
+                    return 0
+                return 5 * topic_match + 2 * len(shared) + len(overlap)
             match = (0, '')
             for line in row['body'].splitlines():
                 for start in range(0, len(line), 300):
                     passage = line[start:start+320].strip()
                     if not passage:
                         continue
-                    hits = len(terms(passage) & wanted)
-                    if not topic_match and shared + hits < 2:
-                        continue
-                    score = 5 * topic_match + shared * 2 + hits
+                    score = relevance(passage)
                     if score > match[0]:
                         match = (score, passage)
             claim = ''
             for note in cards.get(row['id'], ()):
-                hits = len(wanted & terms(note['point'] + ' ' + note['quote']))
-                score = 5 * topic_match + shared * 2 + hits + 1
-                if (topic_match or shared + hits >= 2) and score >= match[0]:
-                    match, claim = (score, note['quote']), note['point']
+                score = relevance(note['point'] + ' ' + note['quote'])
+                if score and score + 1 >= match[0]:
+                    match, claim = (score + 1, note['quote']), note['point']
             if match[0]:
                 metadata = {k: row[k] for k in ('id', 'topic', 'origin', 'article_id', 'published_at', 'url', 'account_name')}
                 best.append((match[0], row['updated_at'], row['id'], metadata, match[1], claim or match[1]))

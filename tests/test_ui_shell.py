@@ -18,6 +18,7 @@ const job = {
 window.demoJob = job;
 window.pywebview = {api: new Proxy({}, {get: (_, name) => async (...args) => {
   window.bridgeCalls.push([name, ...args]);
+  if (name === 'wiki_list') return {ok:true, compiled:[], cards:[], entries:[], preferences:[]};
   if (name === 'meta') return {ok: true, version: '0.10.4', demo: true, theme: 'light'};
   if (name === 'wb_state') return {ok: true, accounts: 3, available: 4, busy: false, queue: 0,
     restored: false, mode: 'today', hours: 24, count: 2, job};
@@ -62,12 +63,12 @@ class UiShellBrowserTest(unittest.TestCase):
         page.locator('#theme [data-theme]').first.wait_for()
         return page
 
-    def test_five_pages_share_sidebar_and_two_theme_choices(self):
-        for name in ('workbench', 'accounts', 'articles', 'drafts', 'settings'):
+    def test_desktop_pages_share_sidebar_and_two_theme_choices(self):
+        for name in ('workbench', 'accounts', 'articles', 'drafts', 'settings', 'wiki'):
             with self.subTest(page=name):
                 page = self.page_for(name)
                 try:
-                    self.assertEqual(page.locator('.rail .nav button').count(), 5)
+                    self.assertEqual(page.locator('.rail .nav button').count(), 6)
                     self.assertEqual(page.locator('#theme [data-theme]').count(), 2)
                     self.assertEqual(page.locator('.brand-mark').inner_text(), 'W')
                     self.assertEqual(page.locator('.rail .nav [aria-current="page"]').get_attribute('data-page'), name)

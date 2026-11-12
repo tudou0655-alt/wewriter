@@ -135,11 +135,16 @@ def job_status_label(job):
         warned = bool(json.loads(job.get('warnings') or '[]'))
     except ValueError:
         warned = True
+    if job['status'] == '已完成' and '已保存' in (job.get('message') or '') and warned:
+        return '已保存，需复核'
     if job['status'] == '等待中' and job.get('stage') == '排队中':
         return '排队中'
     if job['status'] == '部分完成':
         # Too few new articles is not a fault; say so instead of a bare “部分完成”.
         message = job.get('message') or ''
+        screened = re.search(r'程序初筛通过 (\d+)/(\d+)', message)
+        if screened:
+            return f'待复核，初筛通过 {screened.group(1)}/{screened.group(2)}'
         made = re.search(r'已生成 (\d+)/(\d+)', message)
         if made:
             lead = '素材不足，完成' if '新素材不足' in message else '部分完成'
@@ -342,6 +347,8 @@ def draft_hint(report):
         return '二审失败，需人工复核'
     if re.search(r'需复核|质量提示', report):
         return '有事实或质量提示待核实'
+    if '优先成稿模式：未执行自动二审' in report:
+        return '未执行自动二审'
     # Only the engine's own status section means research failed; the words 降级/未使用 can appear in article notes.
     if '## 联网研究状态' in report:
         return '联网资料降级，仅基于原文'
@@ -2060,7 +2067,7 @@ class App:
         grid.columnconfigure(0, weight=1, uniform='half')
         grid.columnconfigure(1, weight=1, uniform='half')
         words = track('target_words', tk.StringVar(value=str(config['target_words'])))
-        self.field(grid, '目标篇幅（字，可填 200—20000 的任意整数）', lambda box: ttk.Combobox(
+        self.field(grid, '目标篇幅（200—20000 字，允许上下浮动 20%）', lambda box: ttk.Combobox(
             box, textvariable=words, values=['800', '1200', '1500', '2000', '3000']), column=0)
         preset_value = config.get('style_preset') or next(
             (name for name, text in STYLE_PRESETS.items() if text == config['style']), config['style'])

@@ -11,6 +11,7 @@ from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlsplit
+from .api import ApiError
 
 
 # USD prices per million tokens, checked against provider pages on 2026-10-27.
@@ -18,6 +19,7 @@ from urllib.parse import urlsplit
 # illustration, not a live foreign-exchange quote.
 USD_CNY = Decimal('6.70')
 DAJIALA_CNY = Decimal('0.16')  # User's provider contract figure; verify with invoice.
+DATA_COLLECTION_BUDGET_CNY = Decimal('10.00')
 SEARCH_USD = Decimal('0.01')
 PRICE_DATE = '2026-10-28'
 MODEL_RATES = {
@@ -136,28 +138,39 @@ def _estimate(event):
 class CostMeter:
     """The running job's funnel owns the ledger, including retries of that job."""
 
-    def __init__(self, funnel, max_requests=None):
+    def __init__(self, funnel, max_requests=None, collection_budget_cny=None):
         self.funnel = funnel
         self.events = funnel.data.setdefault('cost_events', [])
         self.max_requests = max_requests
+        self.collection_budget_cny = collection_budget_cny
 
-    def _attempt_count(self):
-        """Count the parent's and all children's attempts before another paid POST."""
+    def _task_events(self):
+        """Include parent and child requests, including uncertain attempts and earlier retries."""
         db, job_id = self.funnel.db, self.funnel.job_id
         parent = db.rows('SELECT parent_job_id FROM batch_items WHERE child_job_id=?', (job_id,))
         parent_id = parent[0]['parent_job_id'] if parent else job_id
         ids = [parent_id] + [r['child_job_id'] for r in db.rows(
             'SELECT child_job_id FROM batch_items WHERE parent_job_id=?', (parent_id,))]
-        total = 0
         for row in db.rows('SELECT funnel FROM jobs WHERE id IN (' + ','.join('?' for _ in ids) + ')', ids):
             try:
                 events = json.loads(row['funnel'] or '{}').get('cost_events', [])
             except (ValueError, TypeError, AttributeError):
                 continue
             if isinstance(events, list):
-                total += sum(isinstance(event, dict) and event.get('kind') in
-                             ('collection', 'model', 'search') for event in events)
-        return total
+                yield from (event for event in events if isinstance(event, dict))
+
+    def _attempt_count(self):
+        return sum(event.get('kind') in ('collection', 'model', 'search')
+                   for event in self._task_events())
+
+    def _collection_reserved(self):
+        prices = [event.get('provider_cny') for event in self._task_events()
+                  if event.get('kind') == 'collection']
+        try:
+            values = [Decimal(price) for price in prices]
+            return sum(values, Decimal(0)) if all(p.is_finite() and p >= 0 for p in values) else None
+        except (InvalidOperation, TypeError):
+            return None
 
     def begin(self, url, payload):
         kind = _kind(url, payload)
@@ -175,6 +188,14 @@ class CostMeter:
                 'www.dajiala.com': 'dajiala', 'api.everyinfra.com': 'everyinfra'}.get(hostname, 'other')
         if isinstance(hostname, str) and hostname.endswith('.cn-beijing.maas.aliyuncs.com'):
             host = 'bailian'
+        if kind == 'collection' and self.collection_budget_cny is not None:
+            reserved = self._collection_reserved()
+            if reserved is None or host != 'dajiala':
+                raise ApiError('数据采集存在未知单价请求，无法保证不超过 10 元；已在发送前停止',
+                               kind='budget')
+            if reserved + DAJIALA_CNY > self.collection_budget_cny:
+                raise ApiError('本次数据采集已达到 10 元预算；已在发送下一次请求前停止',
+                               kind='budget')
         if kind == 'search' and host == 'deepseek' and urlsplit(url).path.endswith('/v1/tools/search'):
             model = 'deepseek-search'
         event = {'id': uuid.uuid4().hex, 'kind': kind, 'model': model, 'host': host,

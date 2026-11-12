@@ -87,7 +87,7 @@ class ExpansionTest(unittest.TestCase):
 
         run = Run()
         first, _notes = compose(Engine(), run, SOURCES)
-        self.assertIn('至少 1800 字', length_warning(first, run.config))
+        self.assertIn('至少 1600 字', length_warning(first, run.config))
         second, _notes = compose(Engine(), run, SOURCES)
         self.assertEqual(run.writer.writes, 1)
         self.assertEqual(run.writer.expansions, 2)
@@ -158,7 +158,7 @@ class ExpansionTest(unittest.TestCase):
         run = Run()
         status = write_one(engine, run, [12])
         self.assertEqual(status, '部分完成')
-        self.assertIn('至少 1800 字', run.warnings[0])
+        self.assertIn('至少 1600 字', run.warnings[0])
         self.assertEqual(article_chars(engine.db.saved[0]), 1466)
         self.assertIn('待修改稿', engine.db.saved[1])
 

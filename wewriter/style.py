@@ -20,9 +20,9 @@ LEVELS = {
 }
 STRENGTH = {
     'official': '可以直接陈述，可写“规定”“要求”',
-    'reported': '首次出现时用一句话交代出处和适用范围（如“某省的验收要求”），之后正常陈述；'
+    'reported': '保留资料的实际归属与可信程度；'
                 '不能写成“官方明确”“国家规定”，不能加重原文没有的后果或程度',
-    'unverified': '只能写成“有材料称……，截至发稿未查到官方原件”，不进标题，不作为结论依据',
+    'unverified': '不作为标题、正文或结论的事实依据，列入待核实事项',
 }
 # Words that make a claim official, mandatory or consequential. A source below "official" may use
 # them only where its own text does.
@@ -47,8 +47,10 @@ def _scope(source):
     """Where a fact comes from, as the article may say it: WeChat originals are 行业资料 without
     any account name or title (the customer's iron rule); web pages keep their site."""
     from .anonymity import is_wechat
+    if source.get('kind') == 'wiki':
+        return '本地知识库背景摘录，限原资料的时间和适用对象；日期：' + (source.get('published_at') or '未注明')
     if str(source.get('source_id', '')).startswith('S') or is_wechat(source.get('url')):
-        return '行业资料（转述，非官方；文中只能写“行业消息”“有材料显示”，不写任何公众号）'
+        return '转述资料（非官方）'
     return f"网页《{str(source.get('title') or '')[:40]}》（{urlsplit(str(source.get('url', ''))).hostname or '未知网站'}）"
 
 
@@ -80,11 +82,19 @@ def fact_sheet(sources, limit=60):
             for doubt in part.get('uncertainties') or []:
                 add(doubt, '', [sid], 'unverified', _scope(source) + '中的待核实内容')
         notes = source.get('web_research') or ''
+        notes = re.sub(r'（(?:另有网页正文节选|搜索摘要，使用前核对原件)）', '', notes)
         # Research places source marks after sentence punctuation ("事实。[W1]").
         # Keep those marks with their sentence; splitting at the punctuation first
         # would turn them into empty, uncitable facts.
         for match in re.finditer(r'[^。！？\n]+[。！？](?:[ \t]*\[W\d+\])*|[^。！？\n]+', notes):
             sentence = match.group()
+            # A single source prefix labels the whole provider result line; mixed lines do not.
+            line_start = notes.rfind('\n', 0, match.start()) + 1
+            prefix = re.match(r'\s*\[(W\d+)\]', notes[line_start:])
+            line_end = notes.find('\n', match.start())
+            line = notes[line_start:line_end if line_end >= 0 else len(notes)]
+            if prefix and set(re.findall(r'\[(W\d+)\]', line)) == {prefix[1]}:
+                sentence += f'[{prefix[1]}]'
             marks = list(dict.fromkeys(re.findall(r'\[(W\d+)\]', sentence)))
             plain = re.sub(r'\[W\d+\]', '', sentence).strip()
             if not plain:
@@ -95,7 +105,9 @@ def fact_sheet(sources, limit=60):
                 levels = [source_level(by_id[m]) for m in marks if m in by_id]
                 level = 'official' if 'official' in levels else 'reported'
                 scope = '；'.join(_scope(by_id[m]) for m in marks if m in by_id) or '联网研究'
-                add(plain, '', marks, level, scope)
+                excerpt = next((by_id[m].get('excerpt', '') for m in marks
+                                if m in by_id and by_id[m].get('excerpt')), '')
+                add(plain, excerpt, marks, level, scope)
     return facts
 
 
@@ -184,15 +196,15 @@ def same_facts(before, after):
 # Fallback writing methods distilled from customer-approved drafts. Their facts and exact wording
 # are never evidence for another article; a customer's valid style card replaces this fallback.
 DEFAULT_STYLE_CARD = {
-    'reader': '正在判断业务消息与自己是否有关的企业负责人和执行人员；先说清影响谁、要判断什么',
-    'task': '围绕一个读者问题，把已知事实、适用限制和可做的下一步连成一条主线，而不是逐条复述材料',
-    'title': '只抓本篇最有价值的一件事，点出受影响对象或具体变化；数字、期限、风险只在事实支持时写，不制造紧迫感',
-    'opening': '前两三句从已知事实或读者当下面临的判断切入，讲清是什么、为何与读者有关；不套万能招呼或虚构现场',
-    'hierarchy': '每节回答一个读者真正需要判断的问题，先给事实再解释影响，必要时给有条件的行动；材料少就少设章节',
-    'voice': '像懂业务的同行解释一件事：具体、克制、顺口；专业词用大白话解释，适量用“你”，不写审稿报告腔',
-    'ending': '留下读者现在最该确认或准备的一件事；它必须有资料依据，不强制另起“最后提醒”或清单',
+    'reader': '想知道这件事和自己的钱或机会有什么关系的企业负责人和项目申报、投标负责人',
+    'task': '围绕一个读者问题，先把原文的金额、文号、日期、条件和清单讲全，再给一句有依据的明确结论和下一步',
+    'title': '地区、金额或时间加行动信号（开始、结果、机会、截止、还……吗），或直接用读者心里的问题；数字要有依据，不用教程体和辟谣口吻',
+    'opening': '前一两句讲变化或冲突，第三句说这篇给读者什么（几条要求、一份清单、一个判断）；不铺背景，不虚构现场',
+    'hierarchy': '全文选一种写法：条款多用一二三小标题加编号清单，每条“加粗短语：说明”；否则段落用承接句自然衔接；同一内容只讲一次',
+    'voice': '像懂行的同行当面讲：对读者说“你”，口语但专业，敢下有依据的判断；出处只说发文单位且只说一次，不用转述腔，不逐句免责',
+    'ending': '落到读者现在该做的一两件事，留一句好记的话；必须有资料依据，不强制另起清单',
     'taboos': ['不把范文或风格示例当作本篇事实', '不夸大来源、传播范围、数字和后果',
-               '不为了生动编造人物、现场、对话或期限', '不为凑字数重复事实或添加没有依据的动作'],
+               '不为了生动编造人物、现场、对话或期限', '不为凑字数重复事实或段落', '不写“行业材料称”“原文提到”这类转述腔，不逐句写“有待核实”'],
     'examples': [
         {'fact': '某类项目申报须提交书面申请', 'good': '申报这类项目，书面申请要交上去',
          'bad': '没交书面申请，就会被列入黑名单'},

@@ -24,7 +24,7 @@ class LengthTest(unittest.TestCase):
         self.assertEqual(article_chars('## 标题\n甲乙[S1] > 丙[W2]'), 5)
 
     def test_writer_prompt_requires_realistic_target_without_fabrication(self):
-        self.assertIn('90% 至 110%', WRITER_RULES)
+        self.assertIn('80% 至 120%', WRITER_RULES)
         self.assertIn('绝不编造事实', WRITER_RULES)
 
     def test_short_first_draft_is_kept_for_targeted_expansion(self):
@@ -42,7 +42,7 @@ class LengthTest(unittest.TestCase):
         writer = Writer([475, 586])
         output = write_to_length(writer, [], {'target_words': 2000})
         self.assertEqual(len(writer.feedback), 1)
-        self.assertIn('至少 1800 字', length_warning(output, {'target_words': 2000}))
+        self.assertIn('至少 1600 字', length_warning(output, {'target_words': 2000}))
 
     def test_review_shortening_is_visible_without_discarding_draft(self):
         class ReviewWriter(Model):
@@ -73,7 +73,7 @@ class LengthTest(unittest.TestCase):
                 pass
 
         output, _notes = compose(Engine(), Run(), [{'article_id': 1, 'source_id': 'S1'}])
-        self.assertIn('至少 1800 字', length_warning(output, Run.config))
+        self.assertIn('至少 1600 字', length_warning(output, Run.config))
 
     def test_style_rewrite_that_shrinks_full_article_is_rejected(self):
         class StyleWriter:

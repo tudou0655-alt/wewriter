@@ -145,7 +145,36 @@ def _migrate_v6(db):
         origin TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)''')
 
 
-MIGRATIONS = {2: _migrate_v2, 3: _migrate_v3, 4: _migrate_v4, 5: _migrate_v5, 6: _migrate_v6}
+def _migrate_v7(db):
+    db.execute('''CREATE TABLE IF NOT EXISTS wiki_entries (
+        id INTEGER PRIMARY KEY, topic TEXT NOT NULL, origin TEXT NOT NULL, body TEXT NOT NULL,
+        article_id INTEGER REFERENCES articles(id), updated_at TEXT NOT NULL, UNIQUE(article_id,topic))''')
+    db.execute('CREATE TABLE IF NOT EXISTS wiki_pages(topic TEXT PRIMARY KEY, notes TEXT NOT NULL)')
+    for event, row in (('INSERT', 'NEW'), ('DELETE', 'OLD'), ('UPDATE', 'NEW')):
+        db.execute(f'''CREATE TRIGGER IF NOT EXISTS wiki_invalidate_{event} AFTER {event} ON wiki_entries
+                       BEGIN DELETE FROM wiki_pages WHERE topic={row}.topic; END''')
+    db.execute('CREATE UNIQUE INDEX IF NOT EXISTS wiki_manual_source ON wiki_entries(topic,origin) WHERE article_id IS NULL')
+
+
+def _migrate_v8(db):
+    db.execute('''CREATE TABLE IF NOT EXISTS wiki_cards(id INTEGER PRIMARY KEY, entry_id INTEGER NOT NULL
+               REFERENCES wiki_entries(id) ON DELETE CASCADE, quote TEXT NOT NULL, point TEXT NOT NULL,
+               state TEXT NOT NULL DEFAULT 'generated', UNIQUE(entry_id,quote))''')
+    db.execute('''CREATE TABLE IF NOT EXISTS writing_preferences(id INTEGER PRIMARY KEY, draft_id INTEGER REFERENCES drafts(id)
+               ON DELETE SET NULL, revision INTEGER, scope TEXT NOT NULL, instruction TEXT NOT NULL,
+               UNIQUE(scope,instruction))''')
+    for row in db.execute('SELECT notes FROM wiki_pages'):
+        for n in json.loads(row[0]):
+            db.execute('INSERT OR IGNORE INTO wiki_cards(entry_id,quote,point) SELECT id,?,? FROM wiki_entries '
+                       'WHERE id=? AND instr(body,?)>0', (n['quote'],n['point'],n['id'],n['quote']))
+    db.execute('''CREATE TRIGGER IF NOT EXISTS wiki_drop_unlocated AFTER UPDATE OF body ON wiki_entries BEGIN
+                  DELETE FROM wiki_cards WHERE entry_id=NEW.id AND instr(NEW.body,quote)=0; END''')
+    db.execute('''CREATE TRIGGER IF NOT EXISTS wiki_drop_generated AFTER DELETE ON wiki_pages BEGIN
+                  DELETE FROM wiki_cards WHERE state='generated' AND entry_id IN
+                  (SELECT id FROM wiki_entries WHERE topic=OLD.topic); END''')
+
+
+MIGRATIONS = {8: _migrate_v8, 7: _migrate_v7, 2: _migrate_v2, 3: _migrate_v3, 4: _migrate_v4, 5: _migrate_v5, 6: _migrate_v6}
 SCHEMA_VERSION = max(MIGRATIONS)
 RESTORE_TABLES = {"accounts", "articles", "jobs", "drafts", "settings", "analyses", "draft_versions"}
 
@@ -213,6 +242,7 @@ class Database:
             if kind == 'articles':
                 image_paths = [r[0] for r in db.execute(
                     'SELECT local_path FROM article_images WHERE article_id IN (SELECT id FROM cleanup_ids)').fetchall()]
+                db.execute('DELETE FROM wiki_entries WHERE article_id IN (SELECT id FROM cleanup_ids)')
                 db.execute('DELETE FROM article_images WHERE article_id IN (SELECT id FROM cleanup_ids)')
                 db.execute('DELETE FROM analyses WHERE article_id IN (SELECT id FROM cleanup_ids)')
                 db.execute('DELETE FROM article_metrics WHERE article_id IN (SELECT id FROM cleanup_ids)')
@@ -236,7 +266,7 @@ class Database:
 
     def clear_all(self, *, preserve_accounts=False):
         """Remove all business records while preserving settings and external secret files."""
-        tables = ('draft_versions', 'drafts', 'analyses', 'research_cache', 'research_pending', 'batch_items',
+        tables = ('writing_preferences', 'wiki_cards', 'wiki_pages', 'wiki_entries', 'draft_versions', 'drafts', 'analyses', 'research_cache', 'research_pending', 'batch_items',
                   'article_images', 'metric_notes', 'article_metric_times',
                   'job_metrics', 'article_metrics', 'source_refs', 'jobs', 'articles', 'accounts')
         if preserve_accounts:
@@ -404,6 +434,7 @@ class Database:
                        (title.strip(), body.strip(), status, revision, stamp(), draft_id))
             db.execute("INSERT INTO draft_versions(draft_id,revision,title,body,created_at) VALUES(?,?,?,?,?)",
                        (draft_id, revision, title.strip(), body.strip(), stamp()))
+            return revision
 
     def add_example(self, title, body, kind='good', score=None, avoid='', origin=''):
         """Store an example article for the style card; returns its id."""

@@ -22,7 +22,7 @@ NEAR_TITLE_RATIO = 0.85
 NEUTRAL = '有行业消息称'
 RULE = ('铁律：成稿里绝对不能出现任何公众号——不写公众号名称、作者、其他公众号文章的完整标题或明显点名该文章，'
         '不写“某公众号、有公众号、微信公众号、推文、原文作者、原文称、据某号”这类说法。'
-        '公共政策名称和主题词可以正常使用；转述类事实只交代最终来源，例如“某省发改委文件”“行业消息”“公开信息显示”。')
+        '公共政策名称和主题词可以正常使用；转述类事实只交代最终来源，例如“某省发改委文件”“公开信息显示”。')
 
 
 def _plain(text):
@@ -45,7 +45,8 @@ def block_list(sources, account_names=()):
     for source in sources or []:
         if not isinstance(source, dict):
             continue
-        wechat = str(source.get('source_id', '')).startswith('S') or is_wechat(source.get('url'))
+        wechat = ((str(source.get('source_id', '')).startswith('S') and source.get('wiki_origin') != '自有资料')
+                  or is_wechat(source.get('url')))
         if wechat:
             if source.get('account_name'):
                 names.append(str(source['account_name']).strip())

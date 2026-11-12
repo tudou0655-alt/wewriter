@@ -4,7 +4,7 @@ import json
 import re
 import uuid
 from copy import deepcopy
-from ..api import (ApiError, Model, Transport, digest, draft_shape, fact_identifiers, identifier_status,
+from ..api import (ApiError, Model, Transport, CONTENT_PROMPT_REVISION, DETERMINISTIC_NOTES, digest, draft_shape, fact_identifiers, identifier_status, flag_unverified_quotes,
                    is_verification_todo, merge_similar, split_todos)
 from ..config import migrate
 from ..db import stamp
@@ -25,15 +25,19 @@ def article_chars(body):
 
 
 def length_floor(config):
-    return int(config.get('target_words', 0) * 0.9)
+    return (config.get('target_words', 0) * 4 + 4) // 5
 
 
 def length_warning(output, config):
     floor = length_floor(config)
     actual = article_chars(output['body'])
     if floor and actual < floor:
-        return (f'正文约 {actual} 字，低于目标 {config["target_words"]} 字的 90%（至少 {floor} 字）；'
+        return (f'正文约 {actual} 字，低于目标 {config["target_words"]} 字的 80%（至少 {floor} 字）；'
                 '已保留为待修改稿，请增加素材、手动补写或降低目标字数')
+    ceiling = config.get('target_words', 0) * 6 // 5
+    if ceiling and actual > ceiling:
+        return (f'正文约 {actual} 字，超过目标 {config["target_words"]} 字的 120%（最多 {ceiling} 字）；'
+                '已保留完整草稿，请人工精简')
     return ''
 
 
@@ -49,7 +53,8 @@ def style(engine, ctx, reference):
     content = engine.db.rows('SELECT content FROM articles WHERE id=?',
                              (reference['article_id'],))[0]['content'][:24000]
     key = digest(json.dumps(['style-v2', provider, ctx.config['providers'][provider],
-                             reference['title'], content], sort_keys=True))
+                             reference['title'], content]
+                            + ([CONTENT_PROMPT_REVISION] if CONTENT_PROMPT_REVISION else []), sort_keys=True))
     reference['style_reference'] = ctx.cached(
         reference['article_id'], key, lambda: ctx.summarizer.analyze_style(content, reference['title']))
 
@@ -57,6 +62,14 @@ def style(engine, ctx, reference):
 def compose(engine, ctx, writing_sources):
     ctx.stage("综合写作", "正在综合材料、组织大纲并生成正文…")
     writer = ctx.writer
+    if isinstance(writer, Model) and hasattr(engine, 'db'):
+        # Summaries are useful for selection, but the writer and reviewer must
+        # see the original wording to check scope and exceptions.
+        writing_sources = [
+            {**source, 'excerpt': engine.db.rows('SELECT content FROM articles WHERE id=?',
+                                                (source['article_id'],))[0]['content'][:24000]}
+            if source.get('article_id') and str(source.get('source_id', '')).startswith('S')
+            else source for source in writing_sources]
     # A finished initial draft is a stage result, not a published draft. Cache
     # it under this job and exact inputs so a later review failure cannot make
     # the next attempt pay for the same writing again.
@@ -64,7 +77,7 @@ def compose(engine, ctx, writing_sources):
     # Recent siblings and the global style library can change while this task
     # is paused. Freeze those inputs once for this article/job; the job's own
     # topic and source content remain fingerprinted below.
-    dynamic_fields = ('recent_drafts', 'style_card', 'example', 'account_names', 'style_note')
+    dynamic_fields = ('recent_drafts', 'style_card', 'example', 'account_names', 'style_note', 'remembered_styles')
     snapshot_key = f"t040-input-v1:{ctx.job['id']}:snapshot"
     snapshot = ctx.cached(article_id, snapshot_key,
                           lambda: {field: ctx.config.get(field) for field in dynamic_fields})
@@ -72,15 +85,91 @@ def compose(engine, ctx, writing_sources):
         ctx.config[field] = deepcopy(value)
     def stage_key(stage, value):
         content_config = {key: value for key, value in ctx.config.items()
-                          if key != 'max_paid_requests'}
-        fingerprint = digest(json.dumps(['t040-stage-v1', ctx.job['id'], stage, value,
-                                         writing_sources, content_config], ensure_ascii=False,
+                          if key not in ('max_paid_requests', 'editorial_plan', *dynamic_fields)}
+        frozen = {field: ctx.config.get(field) for field in dynamic_fields}
+        planned = (None if stage in ('logic-plan-v1', 'logic-review-v1', 'logic-replan-v1', 'domain-review-v1')
+                   else ctx.config.get('editorial_plan'))
+        fingerprint = digest(json.dumps(['t040-stage-v1', ctx.job['id'], stage, value, planned,
+                                         writing_sources, content_config, frozen]
+                                       + ([CONTENT_PROMPT_REVISION] if CONTENT_PROMPT_REVISION else []), ensure_ascii=False,
                                         sort_keys=True, default=str))
         return f"t040-stage-v1:{ctx.job['id']}:{stage}:{fingerprint}"
+    planner = getattr(writer, 'plan_article', None)
+    if callable(planner) and ctx.config.get('writing_mode') == 'single_web':
+        ctx.stage('逻辑构思', '正在确认论点能否由已知事实推出…')
+        try:
+            plan = deepcopy(ctx.cached(article_id, stage_key('logic-plan-v1', china_time(stamp())[:10]),
+                                       lambda: planner(writing_sources, ctx.config)))
+        except ApiError as exc:
+            if exc.kind != 'validation':
+                raise
+            raise TaskError('选题预检未形成有效的证据主线，跳过该候选：' + redact(str(exc)),
+                            ErrorCode.MATERIAL) from None
+        if plan['status'] == 'skip':
+            raise TaskError('论证依据不足，跳过该候选：' + redact(plan['reason']), ErrorCode.MATERIAL)
+        for note in plan.get('normalization_notes', []):
+            ctx.warn(note)
+        logic = getattr(writer, 'review_logic', None)
+        if plan.get('argument') and callable(logic):
+            for attempt in range(2):
+                ctx.stage('逻辑核对', '正在检查前提、结论和段间承接…')
+                try:
+                    verdict = deepcopy(ctx.cached(article_id, stage_key('logic-review-v1', plan),
+                                                  lambda: logic(plan, writing_sources)))
+                except ApiError as exc:
+                    if exc.kind != 'validation':
+                        raise
+                    message = '逻辑核对未完成，保留规划继续生成待审核草稿：' + redact(str(exc))
+                    plan.setdefault('normalization_notes', []).append(message)
+                    ctx.warn(message)
+                    break
+                if verdict['status'] == 'ready':
+                    plan['logic'] = verdict
+                    break
+                if attempt:
+                    raise TaskError('论证不成立，跳过该候选：' + redact(verdict['reason']),
+                                    ErrorCode.MATERIAL)
+                ctx.stage('逻辑修正', '正在调整论证骨架…')
+                try:
+                    plan = deepcopy(ctx.cached(article_id, stage_key('logic-replan-v1', [plan, verdict]),
+                                               lambda: planner(writing_sources, {**ctx.config,
+                                                   'planning_feedback': verdict['reason'], 'prior_plan': plan})))
+                except ApiError as exc:
+                    if exc.kind != 'validation':
+                        raise
+                    raise TaskError('论证修正未形成有效骨架，跳过该候选：' + redact(str(exc)),
+                                    ErrorCode.MATERIAL) from None
+                if plan['status'] == 'skip':
+                    raise TaskError('论证依据不足，跳过该候选：' + redact(plan['reason']),
+                                    ErrorCode.MATERIAL)
+                for note in plan.get('normalization_notes', []):
+                    ctx.warn(note)
+        theory = getattr(writer, 'review_theory', None)
+        if plan.get('argument') and callable(theory):
+            ctx.stage('理论与适用范围', '正在核对概念、主体及数字时间边界…')
+            try:
+                domain = deepcopy(ctx.cached(article_id, stage_key('domain-review-v1', plan),
+                                             lambda: theory(plan, writing_sources)))
+            except ApiError as exc:
+                if exc.kind != 'validation':
+                    raise
+                domain = {'status': 'ready', 'boundaries': [], 'normalization_notes': [
+                    '领域核对未完成，继续生成待审核草稿：' + redact(str(exc))]}
+            if domain['status'] == 'skip':
+                raise TaskError('领域依据不足，跳过该候选：' + redact(domain['reason']),
+                                ErrorCode.MATERIAL)
+            plan['domain'] = domain
+            for note in domain.get('normalization_notes', []):
+                ctx.warn(note)
+        ctx.config['editorial_plan'] = plan
+        ctx.stage('语言成稿', '正在依据素材与规划写作…')
     output = deepcopy(ctx.cached(article_id, stage_key('write', 't048-length-v1'),
                                  lambda: (write_to_length(writer, writing_sources, ctx.config)
                                           if isinstance(writer, Model) else writer.write(writing_sources, ctx.config))))
-    if isinstance(writer, Model) and length_warning(output, ctx.config):
+    plan = ctx.config.get('editorial_plan') or {}
+    output.setdefault('review_notes', []).extend(plan.get('normalization_notes', [])
+                                               + plan.get('domain', {}).get('normalization_notes', []))
+    if isinstance(writer, Model) and article_chars(output['body']) < length_floor(ctx.config):
         engine.check()
         ctx.stage('篇幅补充', '正在依据已有事实补充正文…')
         try:
@@ -92,7 +181,53 @@ def compose(engine, ctx, writing_sources):
     if ctx.config.get('draft_first_mode', False):
         ctx.review_state = 'off'
         ctx.verified = {'sources': [], 'report': '\n## 审核状态\n优先成稿模式：未执行自动二审、联网查证和风格改写；稿件需人工审核。\n'}
+        if isinstance(writer, Model) and ctx.config.get('writing_mode') == 'single_web':
+            cited = set(re.findall(r'\[([SW]\d+)\]', output['body']))
+            missing = [s['source_id'] for s in writing_sources
+                       if s.get('source_id') in cited and not str(s.get('excerpt') or '').strip()]
+            if missing:
+                message = '核查来源缺少原文片段：' + '、'.join(missing) + '；事实需人工复核'
+                ctx.warn(message)
+                ctx.verified['report'] += message + '\n'
+            engine.check()
+            ctx.stage('独立事实核查', '正在对照来源检查具体断言与适用范围…')
+            try:
+                issues = deepcopy(ctx.cached(article_id, stage_key('claim-audit', output),
+                                            lambda: writer.audit_claims(output, writing_sources)))
+            except ApiError as exc:
+                ctx.warn('独立事实核查未完成，稿件需人工复核：' + redact(str(exc))[:120])
+                ctx.verified['report'] += '独立事实核查未完成，不能视为事实通过。\n'
+            else:
+                repairable = [item for item in issues if item['sentence'] != output['title']
+                              and output['body'].count(item['sentence']) == 1]
+                if repairable and len(issues) <= 3 and callable(getattr(writer, 'repair_claims', None)):
+                    engine.check()
+                    ctx.stage('定向事实修订', '只修正核查定位的句子并复核…')
+                    try:
+                        revised = deepcopy(ctx.cached(article_id, stage_key('claim-repair', [output, issues]),
+                                                    lambda: writer.repair_claims(output, writing_sources, repairable,
+                                                                                 ctx.config)))
+                        remaining = deepcopy(ctx.cached(article_id, stage_key('claim-reaudit', revised),
+                                                        lambda: writer.audit_claims(revised, writing_sources)))
+                    except ApiError:
+                        ctx.verified['report'] += '定向修订未通过，保留初稿。\n'
+                    else:
+                        if not remaining and len(repairable) == len(issues):
+                            output, issues = revised, []
+                            ctx.verified['report'] += '定向修订后模型核查报 0 处疑点，仍需人工审核。\n'
+                        else:
+                            ctx.verified['report'] += '定向修订后仍有事实疑点，保留初稿。\n'
+                if issues:
+                    output.setdefault('review_notes', []).extend(
+                        '【事实核查】' + redact(item['sentence'][:70] + '：' + item['reason'][:110])
+                        for item in issues[:5])
+                    ctx.warn(f'独立事实核查标出 {len(issues)} 处来源对应或适用范围疑点，请查看稿件审核提示')
+                ctx.verified['report'] += f'独立事实核查标出 {len(issues)} 处疑点；模型核查不能代替人工审核。\n'
         ctx.styled = None
+        if isinstance(writer, Model):
+            output['review_notes'] = [note for note in output.get('review_notes', [])
+                                     if not note.startswith(DETERMINISTIC_NOTES)]
+            flag_unverified_quotes(output, writing_sources)
         return output, quality_notes
     review = getattr(writer, 'review', None)
     if ctx.config.get('quality_review_enabled', True) and callable(review):
@@ -123,10 +258,11 @@ def compose(engine, ctx, writing_sources):
     ctx.verified = verified['verified']
     output = verified['output']
 
+    style_sources = writing_sources + ctx.verified.get('sources', [])
     def style_stage():
-        styled_output = style_pass(engine, ctx, output, writing_sources)
+        styled_output = style_pass(engine, ctx, output, style_sources)
         return {'output': styled_output, 'styled': ctx.styled}
-    style_key = stage_key('style-review', output)
+    style_key = stage_key('style-review', [output, style_sources] if ctx.verified.get('sources') else output)
     styled = deepcopy(ctx.cached(article_id, style_key, style_stage))
     if '风格审核未完成' in str((styled.get('styled') or {}).get('reason') or '') and hasattr(ctx, 'db'):
         ctx.db.execute('DELETE FROM analyses WHERE article_id=? AND cache_key=?',
@@ -252,10 +388,24 @@ def write_one(engine, ctx, selected):
     # comments_enabled=True (retries, schedules) must not fetch comments.
     research, degraded = (engine._research(ctx, sources) if config.get('writing_mode') == 'single_web'
                           else (None, False))
+    if config.get('wiki_enabled'):
+        import sqlite3
+        from ..wiki import retrieve
+        try:
+            sources = sources + retrieve(engine.db, config.get('topic'), sources)
+        except sqlite3.Error:
+            ctx.warn('本次知识库不可用，继续使用当前素材成稿')
     # Recent drafts (batch siblings included, as they are saved one by one) so this one reads differently.
     config['recent_drafts'] = recent_shapes(engine.db)
     use_style(engine.db, config, sources[0].get('title', ''))
-    output, quality_notes = engine._compose(ctx, sources + (research['sources'] if research else []))
+    from ..wiki import preferences_for
+    config['remembered_styles'] = preferences_for(engine.db, config.get('topic'), sources)
+    try:
+        output, quality_notes = engine._compose(ctx, sources + (research['sources'] if research else []))
+    except ApiError as exc:
+        if exc.fatal or exc.kind in ('network', 'validation', 'bad_request', 'budget'):
+            raise
+        raise TaskError('本篇写作调用失败：' + redact(str(exc)), ErrorCode.WRITE) from None
     engine.check()
     verified = getattr(ctx, 'verified', None) or {}
     output, leak_text = leak_guard(output, sources + (research['sources'] if research else [])
@@ -263,6 +413,10 @@ def write_one(engine, ctx, selected):
     for note in output.get('review_notes', []):
         if note.startswith('【来源提示】'):
             ctx.warn(note)
+    if output['title'] == '待拟标题':
+        ctx.warn('标题待补写，请人工拟定后再审核')
+    if config.get('draft_first_mode', False) and output.get('verify_items'):
+        ctx.warn(f'稿件有 {len(output["verify_items"])} 项待核实事项，请查看素材报告')
     short_note = length_warning(output, config) if isinstance(ctx.writer, Model) else ''
     if short_note:
         output.setdefault('review_notes', []).append(short_note)
@@ -271,12 +425,25 @@ def write_one(engine, ctx, selected):
     if research:
         sources += research['sources']
     report += verified.get('report', '') + style_report(config, getattr(ctx, 'styled', None)) + leak_text
+    findings = []
+    if any(str(note).startswith(DETERMINISTIC_NOTES) or str(note).startswith('【事实核查】')
+           for note in output.get('review_notes', [])):
+        findings.append('正文有未核实的引语或事实断言，请查看审核提示')
+    pending = unverified_count(report)
+    if pending:
+        findings.append(f'自动查证后仍有 {pending} 项待核实，请查看素材报告')
+    for finding in findings:
+        ctx.warn(finding)
+    if findings:
+        report += '\n\n## 质量提示\n' + '\n'.join('- ' + finding for finding in findings) + '\n'
     sources += verified.get('sources', [])
     engine.db.save_draft(job["id"], output["title"], output["body"], sources, report)
     ctx.funnel.data['drafts'] = 1
     ctx.funnel.data['quality'] = {
         'research': 'degraded' if degraded else ('done' if research else 'not_used'),
-        'review': ctx.review_state, 'warnings': len(ctx.warnings)}
+        'review': ctx.review_state, 'warnings': len(ctx.warnings),
+        'checks': 'attention' if findings else 'completed',
+        'machine_ready': not ctx.warnings and not degraded}
     ctx.funnel.save()
     status = "部分完成" if ctx.warnings else "已完成"
     engine.db.update_job(job["id"], stage="完成", status=status, error_code='',
@@ -287,6 +454,12 @@ def write_one(engine, ctx, selected):
 
 def report(config, sources, output, quality_notes, research, degraded):
     report = "# 每日素材报告\n\n"
+    if config.get('remembered_styles'):
+        report += '## 本篇使用的写作偏好\n' + '\n'.join('- '+rule for rule in config['remembered_styles']) + '\n\n'
+    plan = config.get('editorial_plan')
+    if plan:
+        report += ('## 编辑规划\n读者问题：' + plan['question'] + '\n主线：' + plan['angle']
+                   + '\n选用事实：' + '、'.join(plan['fact_ids']) + '\n\n')
     if config.get('selection_mode') == 'hot':
         report += ('选文规则：时间窗内按接口返回阅读量降序，点赞量及发布时间作为同阅读量时的排序依据。'
                    '缺失阅读量不参与热点排名。仅代表已管理公众号及本轮查询范围。\n\n')
@@ -294,6 +467,12 @@ def report(config, sources, output, quality_notes, research, degraded):
             report += (f"风格参考：{sources[0]['title']}\n\n"
                        + json.dumps(sources[0]['style_reference'], ensure_ascii=False, indent=2) + '\n\n')
     for s in sources:
+        if s.get('kind') == 'wiki':
+            used = '[' + s['source_id'] + ']' in output.get('body', '')
+            report += (f"## [{s['source_id']}] Wiki · {s['wiki_topic']}\n{s['wiki_origin']}：{s['title']}\n"
+                       f"日期：{s.get('published_at') or '资料未注明'}　{'正文已标注' if used else '提供给模型参考'}\n"
+                       f"{s.get('url') or ''}\n摘录：{s['excerpt']}\n\n")
+            continue
         report += f"## [{s['source_id']}] {s['title']}\n公众号：{s['account_name']}\n原文：{s['url']}\n\n"
         report += metrics_line(s.get('metrics') or {}) + '\n\n'
         if 'comment_analysis' in s:
@@ -313,6 +492,8 @@ def report(config, sources, output, quality_notes, research, degraded):
         report += f"## 写作结构\n{output['structure']}" + (f"：{output['structure_reason']}" if output.get('structure_reason') else '') + "\n\n"
     report += "## 写作大纲\n" + "\n".join("- " + x for x in output["outline"])
     report += "\n\n## 审核提示\n" + "\n".join("- " + x for x in output["review_notes"])
+    if output.get('verify_items'):
+        report += '\n\n## 待核实事项\n' + '\n'.join('- ' + x['claim'] for x in output['verify_items'])
     if quality_notes:
         checks = [x for x in quality_notes if x.startswith('逐句核对｜')]
         others = [x for x in quality_notes if not x.startswith('逐句核对｜')] or ['已完成逐句核对，见下表']
@@ -468,6 +649,7 @@ def rerun_review(engine, draft_id):
         raise ValueError(REVIEW_MISSING) from None
     first = {'title': draft['title'], 'body': draft['body'],
              'outline': _report_items(draft['report'], '写作大纲'),
+             'verify_items': [{'claim': claim} for claim in _report_items(draft['report'], '待核实事项')],
              'review_notes': [n for n in _report_items(draft['report'], '审核提示')
                               if not n.startswith(EARLIER_REVIEW_NOTES)]}
     name = config['writer_provider']
@@ -486,12 +668,13 @@ def rerun_review(engine, draft_id):
     # The old draft's source-check requests became verify items in the review; check them now,
     # exactly as a new task would.
     # A re-run is a new action: the switch as it is set now applies, not the task's old snapshot.
+    config['remembered_styles'] = _report_items(draft['report'], '本篇使用的写作偏好')
     config['auto_verify'] = db.config().get('auto_verify', True)
     config['recent_drafts'] = recent_shapes(db, exclude=draft['id'])
     use_style(db, config, originals[0].get('title', ''))
     run = _RerunContext(config, writer, transport)
     output = verify_claims(engine, run, output, sources)
-    output = style_pass(engine, run, output, sources)
+    output = style_pass(engine, run, output, sources + run.verified['sources'])
     output, leak_text = leak_guard(output, sources + run.verified['sources'], config)
     short_note = length_warning(output, config) if isinstance(writer, Model) else ''
     if short_note:
@@ -518,16 +701,11 @@ class _RerunContext:
 
 
 def use_style(db, config, title):
-    """Put the current style card and the example closest to this article into the task config.
-    Only the writer and the style review read them; the fact review and the checks never do."""
-    from ..style import choose_example, style_block
-    config['style_card'] = db.config().get('style_card')
-    # Every managed account is blocked from articles, not only this article's source.
+    """Keep source anonymity; settings are the only style input for new tasks."""
     config['account_names'] = [a['name'] for a in db.accounts()]
-    example = choose_example(db.examples(), title)
-    config['example'] = ({'id': example['id'], 'title': example['title'], 'skeleton': example['skeleton']}
-                         if example else None)
-    config['style_note'] = style_block(config['style_card'], config['example'])[1]
+    config['style_card'] = None
+    config['example'] = None
+    config['style_note'] = ''
 
 
 def leak_guard(output, sources, config):
@@ -556,17 +734,16 @@ def leak_guard(output, sources, config):
 def style_pass(engine, ctx, output, writing_sources):
     """Review every draft when enabled; deterministic signals guide, but do not gate, the model.
     A rewrite gets structural checks before adoption, not a semantic guarantee of factuality."""
-    from ..api import readability_problems
     from ..style import same_facts, strength_problems
     config = ctx.config
-    signals = readability_problems(output, config.get('recent_drafts') or [])
+    signals = []
     ctx.styled = {'signals': signals, 'scores': None, 'adopted': False, 'reason': ''}
     review = getattr(ctx.writer, 'style_review', None)
     if not config.get('style_review_enabled', True) or not callable(review):
         ctx.styled['reason'] = '未做风格审核（已关闭或模型不支持）'
         return output
     engine.check()
-    ctx.stage('风格审核', '正在对照风格卡检查标题、开头和写法…')
+    ctx.stage('风格审核', '正在对照设置中的写作风格检查表达…')
     try:
         verdict = review(output, writing_sources, config, signals)
     except ApiError as exc:
@@ -577,7 +754,7 @@ def style_pass(engine, ctx, output, writing_sources):
                         for key in ('title', 'opening', 'hierarchy', 'voice', 'usefulness', 'distinctness'))
     rewrite = verdict.get('rewrite')
     if not needs_rewrite:
-        ctx.styled['reason'] = '标题、开头、层级、口吻不低于 4 分，其余不低于 3 分，未改写'
+        ctx.styled['reason'] = '已符合设置中的写作风格，未改写'
         return output
     if not rewrite:
         ctx.styled['reason'] = '写法评分未达门槛但未返回有效改写，保留原稿待人工复核'
@@ -606,19 +783,12 @@ def style_pass(engine, ctx, output, writing_sources):
 
 def style_report(config, styled):
     """The material report's account of the style inputs and the style review."""
-    if not config.get('example') and not styled and not config.get('style_note'):
+    if not styled:
         return ''
-    card = '范文库生成的风格卡' if config.get('style_card') else '默认风格卡（范文库尚未生成风格卡）'
-    lines = ['', '', '## 写作风格', f'风格卡：{card}',
-             '范文骨架：' + (f"《{config['example']['title']}》" if config.get('example') else '无')]
-    if config.get('style_note'):
-        lines.append(config['style_note'])
-    if styled:
-        if styled.get('signals'):
-            lines.append('参考信号：' + '；'.join(styled['signals'][:5]))
-        if styled.get('scores'):
-            lines.append('风格审核分数：' + '，'.join(f'{k} {v}' for k, v in styled['scores'].items()))
-        lines.append('结果：' + styled.get('reason', ''))
+    lines = ['\n\n## 写作风格', '风格依据：设置页的写作风格及补充要求']
+    if styled.get('scores'):
+        lines.append('风格审核分数：' + '，'.join(f'{k} {v}' for k, v in styled['scores'].items()))
+    lines.append('结果：' + styled.get('reason', ''))
     return '\n'.join(lines) + '\n'
 
 

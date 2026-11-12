@@ -102,6 +102,17 @@ class RerunReviewTest(unittest.TestCase):
         self.assertEqual(dict(self.current()), dict(self.draft))
         self.assertEqual(len(self.f.db.rows('SELECT * FROM draft_versions')), 1)
 
+    def test_saved_verification_todos_survive_rerunning_review(self):
+        self.f.db.execute('UPDATE drafts SET report=report || ? WHERE id=?',
+                          ('\n\n## 待核实事项\n- 虚构金额需核对\n', self.draft['id']))
+        config = self.f.db.config()
+        config['auto_verify'] = False
+        self.f.db.save_config(config)
+        Model.review_mode = 'ok'
+        self.engine.rerun_review(self.draft['id'])
+        self.assertEqual(Model.review_calls[0][0]['verify_items'], [{'claim': '虚构金额需核对'}])
+        self.assertIn('虚构金额需核对', self.current()['report'])
+
     def test_missing_material_is_reported_before_any_model_call(self):
         sources = json.loads(self.draft['sources'])
         sources[0].pop('analysis')

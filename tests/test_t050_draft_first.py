@@ -4,12 +4,17 @@ import unittest
 from wewriter.api import ApiError, DRAFT_FIRST_RULES, Model, WRITER_RULES
 from wewriter.config import defaults
 from wewriter.pipeline.composition import compose
+from wewriter.ui import draft_hint
 
 
 SOURCES = [{'source_id': 'S1', 'article_id': 12, 'title': '素材', 'analysis': []}]
 
 
 class DraftFirstTest(unittest.TestCase):
+    def test_draft_list_marks_skipped_automatic_review(self):
+        self.assertEqual(draft_hint('## 审核状态\n优先成稿模式：未执行自动二审、联网查证和风格改写；稿件需人工审核。'),
+                         '未执行自动二审')
+
     def test_default_mode_uses_shorter_prompt_and_preserves_draft(self):
         class Writer(Model):
             def __init__(self):
@@ -25,7 +30,8 @@ class DraftFirstTest(unittest.TestCase):
         writer = Writer()
         result = writer.write(SOURCES, config)
         self.assertTrue(config['draft_first_mode'])
-        self.assertLess(len(DRAFT_FIRST_RULES), len(WRITER_RULES) // 2)
+        self.assertEqual(DRAFT_FIRST_RULES, WRITER_RULES)
+        self.assertIn('写作风格只按 user_style', DRAFT_FIRST_RULES)
         self.assertTrue(writer.requests[0][0].startswith(DRAFT_FIRST_RULES))
         self.assertEqual(len(writer.requests), 1)
         self.assertNotIn('[S10]', result['body'])
@@ -109,6 +115,46 @@ class DraftFirstTest(unittest.TestCase):
             self.assertNotIn('[S99]', rows[0]['body'])
             self.assertIn('来源提示', rows[0]['report'])
             self.assertIn('未执行自动二审', rows[0]['report'])
+        finally:
+            fixture.tearDown()
+
+    def test_draft_first_without_findings_can_fill_batch_target(self):
+        import test_core
+        from test_batch_replacement import OneSource
+        from test_independent import ResearchFake
+        from wewriter.engine import Engine
+
+        class Writer(Model):
+            def __init__(self, *_args):
+                pass
+
+            def plan_article(self, _sources, _config):
+                return {'status': 'ready', 'question': '虚构读者问题', 'angle': '虚构角度',
+                        'fact_ids': ['F1', 'F2', 'F3'], 'sections': ['一']}
+
+            def audit_claims(self, _draft, _sources):
+                return []
+
+            def summary(self, _article, _content):
+                return {'summary': '材料摘要', 'facts': [], 'uncertainties': []}
+
+            def write(self, sources, config):
+                return {'title': '测试稿', 'body': '甲' * 210 + '。[S1]',
+                        'outline': [], 'review_notes': []}
+
+            def review(self, *_args):
+                raise AssertionError('draft-first should not review')
+
+        fixture = test_core.CoreTest()
+        fixture.setUp()
+        try:
+            fixture.config.update(writing_mode='separate_web', draft_count=1,
+                                  target_words=200, draft_first_mode=True)
+            engine = Engine(fixture.db, test_core.FakeVault(), source_factory=OneSource,
+                            model_factory=Writer, research_factory=ResearchFake)
+            self.assertEqual(engine.run('draft-first:batch', fixture.config), '已完成')
+            self.assertEqual(len(fixture.db.rows('SELECT child_job_id FROM batch_items')), 1)
+            self.assertEqual(len(fixture.db.rows('SELECT id FROM drafts')), 1)
         finally:
             fixture.tearDown()
 

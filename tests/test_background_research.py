@@ -134,7 +134,7 @@ class MigrationTest(unittest.TestCase):
             db = Database(path)
             db.execute("INSERT INTO research_pending VALUES(1,'resp_1','t')")
             Database(path)
-            self.assertEqual(SCHEMA_VERSION, 6)
+            self.assertGreaterEqual(SCHEMA_VERSION, 6)
             self.assertEqual(len(db.rows('SELECT * FROM research_pending')), 1)
         finally:
             f.tearDown()

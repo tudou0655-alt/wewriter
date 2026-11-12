@@ -15,6 +15,55 @@ TERMINAL = ('completed', 'failed', 'cancelled', 'incomplete')
 _RESPONSE_ID = re.compile(r'^[A-Za-z0-9_-]{1,200}$')
 
 
+def source_excerpt(content, query, limit=3200):
+    """Keep relevant page paragraphs, including application dates beyond the page opening."""
+    paragraphs = [p.strip() for p in re.split(r'\n\s*\n', str(content or '')[:50000]) if p.strip()]
+    if not paragraphs:
+        return ''
+    topic = re.sub(r'[^\u4e00-\u9fff]', '', query)
+    trigrams = {topic[i:i + 3] for i in range(len(topic) - 2)}
+    identifiers = re.findall(r'[A-Za-z0-9-]{4,}|\d+(?:\.\d+)?(?:万|亿)?元', query)
+    scored = []
+    for index, paragraph in enumerate(paragraphs):
+        plain = re.sub(r'[^\u4e00-\u9fff]', '', paragraph)
+        matches = sum(gram in plain for gram in trigrams)
+        dates = bool(re.search(r'截止|报送|受理|申报时间|申请时间|推荐时间', paragraph))
+        score = min(matches, 12) + 5 * sum(term in paragraph for term in identifiers)
+        if dates and ('申报' in query or '通知' in query):
+            score += 12
+        if index == 0:
+            score += 8
+        scored.append((score, index, paragraph[:900]))
+    chosen, remaining = [], limit
+    for _, index, paragraph in sorted(scored, reverse=True):
+        if remaining <= 0:
+            break
+        chunk = paragraph[:remaining]
+        chosen.append((index, chunk))
+        remaining -= len(chunk) + 2
+    return '\n\n'.join(paragraph for _, paragraph in sorted(chosen))
+
+
+def action_dates(content):
+    """Preserve distinct application steps; the final deadline may not be the first gate."""
+    lines = [line.strip() for line in str(content or '').splitlines() if line.strip()]
+    found = []
+    for index, line in enumerate(lines):
+        if not re.search(r'\d{4}年\d{1,2}月\d{1,2}日', line):
+            continue
+        context = (lines[index - 1] + ' ' + line if index and
+                   re.match(r'^(?:时间|日期)\s*[:：|]', line) else line)
+        match = re.search(r'\d{4}年\d{1,2}月\d{1,2}日', context)
+        excerpt = context[max(0, match.start() - 100):][:240]
+        if (re.search(r'申报|报送|推荐|提交|递交|受理|截止|获取.{0,5}文件|领取.{0,5}文件|开标',
+                      context) and excerpt not in found):
+            found.append(excerpt)
+        # shortcut: only four dated actions per page; revisit for multi-stage notices.
+        if len(found) >= 4:
+            break
+    return found
+
+
 class WebResearch:
     poll_interval = 5          # seconds between GET /responses/{id}
     max_wait = 10 * 60         # then POST /responses/{id}/cancel and report a timeout
@@ -33,9 +82,10 @@ class WebResearch:
                        '说明日期、适用范围及分歧，不把历史信息称为最新。评论只用于寻找读者问题，不作为事实。'
                        # Customer brief: readers decide on subsidy applications, so look for what the
                        # reference article does not already give them.
-                       '读者是关注补贴和专项资金申报的企业决策者。优先查找原文没有的信息：发文部门的官方通知或文件原文、'
-                       '支持方向、支持比例、投资门槛、申报条件与截止时间；往年或上一批同类政策及数据，用于说明变化；'
-                       '已公布的地方执行口径。找不到官方出处的写明未找到，不用转载或自媒体说法代替。'
+                       '读者是关注补贴、专项资金和项目机会的企业负责人。先找能改变他们判断的信息：发文部门的官方通知或文件原文、'
+                       '支持方向、支持比例、投资门槛、申报条件与截止时间；往年或上一批同类政策，用于说明变化；'
+                       '已公布的地方执行口径。只返回与本主题直接对应的资料，相近但不同的主题'
+                       '（例如高校设备验收之于国债设备更新验收）不要写进来。找不到官方出处的写明未找到，不用转载或自媒体说法代替。'
                        # Checking moved before writing: the article's key identifiers are looked up
                        # in official originals now, so the post-review search is only a fallback.
                        + ('key_facts 列出原文中带关键标识（金额、项目编号、文号、中标或成交单位、发文部门、日期）的说法，'
@@ -161,15 +211,13 @@ class DeepSeekResearch:
     def search(self, article, response_id=None, on_created=None):
         # Search API is synchronous and has no resumable response ID.
         title = str(article.get('title') or '').strip()
-        queries = [title[:128]]
+        queries = [(title[:110] + ' site:gov.cn')[:128]]
         facts = article.get('key_facts') or []
-        identifiers = []
-        for fact in facts[:3]:
-            if isinstance(fact, dict):
-                identifiers.extend(str(x) for x in (fact.get('identifiers') or [])[:2])
-        if identifiers:
-            queries.append((' '.join(identifiers) + ' 官方 公告')[:128])
-        return self._search(queries)
+        for fact in facts[:2]:
+            if isinstance(fact, dict) and fact.get('claim'):
+                identifiers = ' '.join(str(x) for x in (fact.get('identifiers') or [])[:2])
+                queries.append((str(fact['claim'])[:80] + ' ' + identifiers[:28]).strip() + ' site:gov.cn')
+        return self._search(queries, need_content=True)
 
     def verify(self, title, items):
         identifiers = ' '.join(str(x) for item in items[:3]
@@ -189,11 +237,11 @@ class DeepSeekResearch:
                                              'need_content': need_content}, timeout=90)
             found = result.get('results')
             if isinstance(found, list):
-                rows.extend(found)
+                rows.extend((row, query) for row in found)
         if not rows:
             raise ApiError('DeepSeek 搜索没有返回可用来源，未使用模型记忆代替检索')
         sources, notes, seen = [], [], set()
-        for row in rows:
+        for row, query in rows:
             if not isinstance(row, dict):
                 continue
             url = row.get('url')
@@ -206,13 +254,17 @@ class DeepSeekResearch:
                 continue
             seen.add(url)
             sid = 'W' + str(len(sources) + 1)
+            content = source_excerpt(row.get('content'), query) if need_content else ''
             sources.append({'source_id': sid, 'title': str(row.get('title') or parsed.hostname)[:200],
                             'url': url, 'account_name': parsed.hostname,
-                            'retrieved_at': stamp(), 'kind': 'web'})
-            content = str(row.get('content') or '').strip()[:1200] if need_content else ''
-            summary = content or str(row.get('summary') or row.get('snippet') or '').strip()[:800]
+                            'retrieved_at': stamp(), 'kind': 'web',
+                            **({'excerpt': content} if content else {})})
+            summary = str(row.get('summary') or row.get('snippet') or content).strip()[:550]
+            for date_line in action_dates(content):
+                if date_line not in summary:
+                    summary += '\n办理时间原文节选：' + date_line.rstrip('。') + f'。[W{len(sources)}]'
             date = str(row.get('date') or '')[:10]
-            grade = '网页正文节选' if content else '搜索摘要，使用前核对原件'
+            grade = '另有网页正文节选' if content else '搜索摘要，使用前核对原件'
             notes.append(f'[{sid}] {date} {summary or sources[-1]["title"]}（{grade}）')
         if not sources:
             raise ApiError('DeepSeek 搜索未返回有效网页链接，已停止该篇写作')

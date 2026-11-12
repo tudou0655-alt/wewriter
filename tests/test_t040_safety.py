@@ -1,7 +1,9 @@
 """Offline regressions for the T-040 source and rewrite trust boundaries."""
 import unittest
 import tempfile
+import json
 from pathlib import Path
+from unittest.mock import patch
 
 from wewriter.config import defaults
 from wewriter.costs import CostMeter, UtilityFunnel, summary, utility_summary
@@ -39,7 +41,7 @@ class TrustBoundaryTest(unittest.TestCase):
 
 class PaidRequestLimitTest(unittest.TestCase):
     def test_parent_child_and_unknown_attempts_share_limit(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1] / 'tmp') as folder:
+        with tempfile.TemporaryDirectory() as folder:
             db = Database(Path(folder) / 'test.sqlite')
             parent = db.job('limit-parent', defaults())
             child = db.job('limit-child', defaults())
@@ -54,7 +56,7 @@ class PaidRequestLimitTest(unittest.TestCase):
             self.assertEqual(summary(db, parent['id'])['unknown_requests'], 2)
 
     def test_settings_actions_have_separate_persistent_ledger(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1] / 'tmp') as folder:
+        with tempfile.TemporaryDirectory() as folder:
             db = Database(Path(folder) / 'test.sqlite')
             meter = CostMeter(UtilityFunnel(db))
             meter.begin('https://api.deepseek.com/chat/completions', {'model': 'deepseek-flash'})
@@ -62,7 +64,7 @@ class PaidRequestLimitTest(unittest.TestCase):
             self.assertEqual(utility_summary(db)['requests'], 1)
 
     def test_everyinfra_request_uses_a_slot_with_unknown_price(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1] / 'tmp') as folder:
+        with tempfile.TemporaryDirectory() as folder:
             db = Database(Path(folder) / 'test.sqlite')
             job = db.job('everyinfra-limit', defaults())
             meter = CostMeter(Funnel.for_attempt(db, job, False), max_requests=1)
@@ -75,6 +77,52 @@ class PaidRequestLimitTest(unittest.TestCase):
 
 
 class DraftCheckpointTest(unittest.TestCase):
+    def test_summary_and_style_keys_change_with_prompt_revision(self):
+        from wewriter.pipeline import materials, composition
+
+        class EngineStub:
+            class DB:
+                def rows(self, sql, _params):
+                    return [{'content': '虚构正文'}] if sql.startswith('SELECT content FROM articles') else []
+            db = DB()
+
+            def check(self):
+                pass
+
+        class Run:
+            config = defaults()
+            keys = []
+
+            def stage(self, *_args):
+                pass
+
+            def cached(self, _article_id, key, _compute):
+                self.keys.append(key)
+                return {}
+
+        run = Run()
+        article = {'id': 1, 'title': '虚构素材'}
+        reference = {'article_id': 1, 'title': '虚构素材'}
+        # Without a revision tag the keys stay those of earlier caches.
+        with patch.object(materials, 'CONTENT_PROMPT_REVISION', ''), patch.object(
+                composition, 'CONTENT_PROMPT_REVISION', ''):
+            materials.summaries(EngineStub(), run, article, '虚构正文')
+            composition.style(EngineStub(), run, reference)
+        self.assertEqual(run.keys[0], digest(json.dumps([
+            'summary-v2-cross-article', run.config['summary_provider'],
+            run.config['providers'][run.config['summary_provider']], article['title'],
+            digest('虚构正文'), 0, '虚构正文'], ensure_ascii=False, sort_keys=True)))
+        self.assertEqual(run.keys[1], digest(json.dumps([
+            'style-v2', run.config['summary_provider'],
+            run.config['providers'][run.config['summary_provider']], reference['title'],
+            '虚构正文'], sort_keys=True)))
+        with patch.object(materials, 'CONTENT_PROMPT_REVISION', 'next'), patch.object(
+                composition, 'CONTENT_PROMPT_REVISION', 'next'):
+            materials.summaries(EngineStub(), run, article, '虚构正文')
+            composition.style(EngineStub(), run, reference)
+        self.assertNotEqual(run.keys[0], run.keys[2])
+        self.assertNotEqual(run.keys[1], run.keys[3])
+
     def test_review_failure_resumes_without_rewriting_and_input_change_invalidates(self):
         cache = {}
 
@@ -122,12 +170,15 @@ class DraftCheckpointTest(unittest.TestCase):
         run.writer.fail_review = False
         compose(Engine(), run, sources)
         self.assertEqual(run.writer.writes, 1)
+        with patch('wewriter.pipeline.composition.CONTENT_PROMPT_REVISION', 'next'):
+            compose(Engine(), run, sources)
+        self.assertEqual(run.writer.writes, 2)
         run.config = {**run.config, 'topic': '修改后的虚构主题'}
         compose(Engine(), run, sources)
-        self.assertEqual(run.writer.writes, 2)
+        self.assertEqual(run.writer.writes, 3)
 
     def test_sqlite_checkpoint_survives_new_run_and_is_removed_on_clear(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1] / 'tmp') as folder:
+        with tempfile.TemporaryDirectory() as folder:
             db = Database(Path(folder) / 'test.sqlite')
             aid = db.save_article({'source_key': 'fictional', 'account_name': '虚构号',
                                    'title': '虚构素材', 'url': 'https://mp.weixin.qq.com/s/fictional',
@@ -167,7 +218,7 @@ class DraftCheckpointTest(unittest.TestCase):
             self.assertFalse(db.rows('SELECT 1 FROM analyses WHERE article_id=?', (aid,)))
 
     def test_failed_style_review_is_not_checkpointed(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1] / 'tmp') as folder:
+        with tempfile.TemporaryDirectory() as folder:
             db = Database(Path(folder) / 'test.sqlite')
             aid = db.save_article({'source_key': 'fictional-style', 'account_name': '虚构号',
                                    'title': '虚构素材', 'url': 'https://mp.weixin.qq.com/s/fictional-style',
@@ -197,7 +248,7 @@ class DraftCheckpointTest(unittest.TestCase):
 
 class SummaryReuseTest(unittest.TestCase):
     def test_only_matching_active_article_reuses_valid_chunk(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1] / 'tmp') as folder:
+        with tempfile.TemporaryDirectory() as folder:
             db = Database(Path(folder) / 'test.sqlite')
             body = '虚构内容甲乙丙丁戊己庚辛壬癸。' * 10
             engine = Engine(db, object())
@@ -243,7 +294,7 @@ class SummaryReuseTest(unittest.TestCase):
             self.assertEqual(calls[-1], after_clear['id'])
 
     def test_unlocatable_quote_is_not_shared(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1] / 'tmp') as folder:
+        with tempfile.TemporaryDirectory() as folder:
             db = Database(Path(folder) / 'test.sqlite')
             body = '虚构可定位原句。' * 30
             ids = []
@@ -271,7 +322,7 @@ class SummaryReuseTest(unittest.TestCase):
             self.assertEqual(calls, ids)
 
     def test_empty_facts_are_not_shared(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1] / 'tmp') as folder:
+        with tempfile.TemporaryDirectory() as folder:
             db = Database(Path(folder) / 'test.sqlite')
             body = '虚构正文。' * 30
             ids = []

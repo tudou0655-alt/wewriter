@@ -988,10 +988,19 @@ class WeReadSource:
         if not re.fullmatch(r"MP_WXS_\d+", account):
             raise ApiError("请先在微信读书关注该公众号，再点击“同步书架公众号”更新标识")
         if self.books is None:
-            shelf = self.shelf()
-            self.books = {b['bookId'] for b in shelf}
-            self.book_titles = {b['bookId']: str(b.get('title') or '').strip() for b in shelf}
+            if self.primary or self.provider:
+                # Saved, enabled accounts are already managed by this user. Provider
+                # listing must not wait for WeRead's unrelated shelf/browser request.
+                accounts = self.db.accounts(enabled=True)
+                self.books = {a['identifier'] for a in accounts}
+                self.book_titles = {a['identifier']: a['name'] for a in accounts}
+            else:
+                shelf = self.shelf()
+                self.books = {b['bookId'] for b in shelf}
+                self.book_titles = {b['bookId']: str(b.get('title') or '').strip() for b in shelf}
         if account not in self.books:
+            if self.primary or self.provider:
+                raise ApiError("本地启用列表未找到该公众号，请到公众号管理页启用或同步后重试")
             raise ApiError("微信读书书架未找到该公众号，请用同一微信账号在手机加入书架后同步")
         self.last_coverage = None
         if self.provider or self.primary:
@@ -1032,7 +1041,7 @@ class WeReadSource:
             try:
                 items = self._provider_listing(label, client, name, biz, limit)
             except ApiError as exc:
-                if exc.fatal:
+                if exc.fatal or exc.kind == 'budget':
                     raise
                 failures.append(exc)
                 continue

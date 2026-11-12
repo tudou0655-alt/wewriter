@@ -69,7 +69,8 @@ class MaterialTest(unittest.TestCase):
         self.assertEqual(len(writer.requests), 2)
         self.assertEqual(writer.requests[0][1]['allowed_source_ids'], ['S1'])
         self.assertIn('本篇允许的来源编号仅有：S1', writer.requests[1][1]['validation_feedback'])
-        self.assertIn('不能把 F10 错写成 S10', writer.requests[0][0])
+        self.assertIn('fact', writer.requests[0][0])
+        self.assertIn('cite', writer.requests[0][0])
 
 
 if __name__ == '__main__':

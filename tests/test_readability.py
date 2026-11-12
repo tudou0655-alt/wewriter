@@ -33,7 +33,7 @@ class PromptTest(unittest.TestCase):
         model.review(model.write(self.sources, self.config), self.sources, self.config)
         write, review = transport.payloads
         self.assertTrue(system_text(write).startswith(WRITER_RULES))
-        self.assertIn('【风格卡】', system_text(write))
+        self.assertNotIn('【风格卡】', system_text(write))
         for rule in (TITLE_AND_OPENING, PLAIN_VOICE, STRUCTURE_RULES):
             self.assertNotIn(rule, system_text(write))
             self.assertNotIn(rule, system_text(review))
@@ -48,16 +48,17 @@ class PromptTest(unittest.TestCase):
         model.style_review(CLEAN, self.sources, self.config, signals=[])
         request = transport.payloads[0]
         sent = system_text(request)
-        self.assertIn('前两三句是否自然讲清事件和读者关系', sent)
-        self.assertIn('不能判定稿内论述是否真实', sent)
-        self.assertIn('title、opening、hierarchy、voice 任一维度低于 4 分', sent)
+        self.assertIn('只对照 user_style', sent)
+        self.assertIn('不能证明事实已通过', sent)
+        self.assertNotIn('低于 4 分', sent)
         self.assertEqual(user_json(request)['article']['body'], CLEAN['body'])
-        self.assertEqual(user_json(request)['signals'], [])
+        self.assertEqual(user_json(request)['user_style'], self.config['style'])
+        self.assertNotIn('signals', user_json(request))
 
     def test_the_fixed_skeleton_is_gone_from_the_brief(self):
         for gone in ('关键词｜核心判断', '→申报或执行要点→建议与风险提示', '时间怎么倒排'):
             self.assertNotIn(gone, EDITORIAL_BRIEF)
-        for kept in ('企业中高层管理者', '可执行的建议', '优先补充原文之外的新信息', '往年'):
+        for kept in ('企业负责人和项目申报、投标负责人', '先把原文的硬信息讲全', '补充不超过正文三成', '往年'):
             self.assertIn(kept, EDITORIAL_BRIEF)
         self.assertEqual(set(STRUCTURES), {'问答式', '清单式', '场景式', '对比式', '时间线式'})
 

@@ -109,7 +109,7 @@ class StyleToReviewTest(unittest.TestCase):
         draft = model.write(self.sources, self.config)
         model.review(draft, self.sources, self.config)
         written, review = transport.payloads
-        self.assertIn('【风格卡】', system_text(written))
+        self.assertNotIn('【风格卡】', system_text(written))
         self.assertEqual(user_json(written)['user_style'], '语气克制，多用短段落')
         self.assertNotIn('【风格卡】', system_text(review))
         for key in ('style', 'style_reference', 'recent_drafts', 'structure'):
@@ -247,8 +247,8 @@ class AttributionAndTitleTest(unittest.TestCase):
         for phrase in ('标题、导语和正文同样受上述规则约束', '流传较广', '问得最多', '机构基于调查／学员反馈',
                        '不能把作者的话写成考生或机构的话', '“公开”“权威”'):
             self.assertIn(phrase, FIDELITY_RULES)
-        for phrase in ('原文作者称', '不要逐段重复“没有统计”“证据不足”', '不影响主线的内容直接删去',
-                       '仍要在正文中用一句话说清'):
+        for phrase in ('不是对资料的转述或点评', '同一个提醒意思全文最多出现一次', '在文末用一段“信息来源说明”集中交代',
+                       '“行业材料”“行业资料”“原文”“材料称”'):
             self.assertIn(phrase, ARTICLE_VOICE)
         model, transport = self.model(chat({**self.draft, 'quality_notes': [], 'claim_checks': [self.TITLE_CHECK]}))
         model.review(self.draft, self.sources, self.config)

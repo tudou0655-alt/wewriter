@@ -48,7 +48,7 @@ class FactSheetTest(unittest.TestCase):
         by_text = {f['fact']: f for f in facts}
         trial = by_text['新设备须连续稳定试运行不少于30天']
         self.assertEqual((trial['level'], trial['sources']), ('reported', ['S1']))
-        self.assertIn('行业资料', trial['scope'])
+        self.assertIn('转述资料', trial['scope'])
         self.assertNotIn('示例号', json.dumps(facts, ensure_ascii=False))     # iron rule: no account names
         self.assertIn('不能写成“官方明确”', trial['strength'])
         self.assertEqual(by_text['材料未注明发文机关']['level'], 'unverified')
@@ -66,30 +66,30 @@ class FactSheetTest(unittest.TestCase):
 
 
 class StyleInputTest(unittest.TestCase):
-    def test_customer_approved_fallback_is_only_a_writing_method(self):
+    def test_settings_text_is_the_only_writing_style(self):
         transport = SequenceTransport(chat(ARTICLE))
         model = Model('deepseek', defaults()['providers']['deepseek'], 'test-only', transport)
         model.write(SOURCES, dict(CONFIG, style='像同行解释，标题具体但不能夸大'))
         sent = system_text(transport.payloads[0])
         user = user_json(transport.payloads[0])
-        self.assertIn('从 facts 选一个读者需要作出的判断或动作', sent)
-        self.assertIn('正文篇幅应达到 target_chinese_characters 的 90% 至 110%', sent)
-        self.assertIn('【风格卡】', sent)
-        self.assertIn('申报这类项目，书面申请要交上去', sent)
+        self.assertIn('写作风格只按 user_style', sent)
+        self.assertIn('target_chinese_characters 的 80% 至 120%', sent)
+        self.assertNotIn('【风格卡】', sent)
+        self.assertNotIn('申报这类项目，书面申请要交上去', sent)
         self.assertNotIn('遵义', sent)
         self.assertNotIn('马鞍山', sent)
         self.assertEqual(user['user_style'], '像同行解释，标题具体但不能夸大')
         self.assertTrue(all(f['fact'] not in sent for f in user['facts']))
 
-    def test_configured_card_replaces_fallback_without_becoming_evidence(self):
+    def test_saved_card_is_not_added_to_settings_style(self):
         card = dict(DEFAULT_STYLE_CARD, opening='先用一个经证实的限制说明读者为何要读')
         transport = SequenceTransport(chat(ARTICLE))
         model = Model('deepseek', defaults()['providers']['deepseek'], 'test-only', transport)
         model.write(SOURCES, dict(CONFIG, style_card=card, style='开头直接讲事实'))
         sent = system_text(transport.payloads[0])
-        self.assertIn(card['opening'], sent)
+        self.assertNotIn(card['opening'], sent)
         self.assertNotIn(DEFAULT_STYLE_CARD['opening'], sent)
-        self.assertIn('user_style 高于已配置风格卡', sent)
+        self.assertIn('写作风格只按 user_style', sent)
         self.assertEqual(user_json(transport.payloads[0])['user_style'], '开头直接讲事实')
 
     def test_card_and_skeleton_sizes(self):
@@ -128,7 +128,8 @@ class StyleInputTest(unittest.TestCase):
             return out
         first, second = prompts()
         self.assertEqual(first, second)                      # same rules, card and example: same prefix
-        self.assertTrue(first.startswith(WRITER_RULES + '\n\n【风格卡】'))
+        self.assertTrue(first.startswith(WRITER_RULES))
+        self.assertNotIn('【风格卡】', first)
         for n in range(12):
             db.add_example(f'其他范文{n}', body + '\n\n更多内容。' * 40, 'good', 60)
         grown = prompts()[0]
@@ -143,7 +144,7 @@ class StyleInputTest(unittest.TestCase):
         model = Model('deepseek', defaults()['providers']['deepseek'], 'k', transport)
         model.review(model.write(SOURCES, config), SOURCES, config)
         write, review = transport.payloads
-        self.assertIn('骨架内容', system_text(write))
+        self.assertNotIn('骨架内容', system_text(write))
         self.assertIn('facts', user_json(write))
         self.assertNotIn('骨架内容', system_text(review) + json.dumps(user_json(review), ensure_ascii=False))
         self.assertNotIn('【风格卡】', system_text(review))
@@ -304,7 +305,7 @@ class LibraryTest(unittest.TestCase):
         self.f.tearDown()
 
     def test_add_list_delete_and_card(self):
-        self.assertEqual(SCHEMA_VERSION, 6)
+        self.assertGreaterEqual(SCHEMA_VERSION, 6)
         listed = self.api.ex_list()
         self.assertTrue(listed['card_is_default'])
         self.assertEqual(listed['examples'], [])

@@ -10,6 +10,7 @@ class ErrorCode:
     AUTH = 'auth'                  # WeRead login / API key / balance / permission
     NETWORK = 'network'
     MODEL_OUTPUT = 'model_output'  # model output failed validation even after one repair
+    WRITE = 'write'                # this article's nonfatal writing call failed; another may work
     API = 'api'
     CONFIG = 'config'
     CANCELLED = 'cancelled'

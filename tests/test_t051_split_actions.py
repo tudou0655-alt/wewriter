@@ -6,6 +6,7 @@ import test_core
 from test_independent import IndependentModel, ResearchFake
 from wewriter.engine import Engine
 from wewriter.pipeline.collect import saved_candidates
+from wewriter.webapp import Api, Backend
 
 
 class MeasuredSource(test_core.FakeSource):
@@ -85,6 +86,33 @@ class SplitActionsTest(unittest.TestCase):
                          {'selection_mode': 'hot', 'min_reads': 0})), 1)
         self.assertEqual(saved_candidates(self.fixture.db,
                          {'selection_mode': 'hot', 'min_reads': 100}), [])
+
+    def test_manual_generation_queues_fresh_collection_even_with_empty_library(self):
+        backend = Backend(self.fixture.db, test_core.FakeVault(), self.fixture.path)
+        backend.busy = True  # Queue the task without starting a worker or any external request.
+        result = Api(backend).wb_write(2)
+        self.assertTrue(result['ok'])
+        self.assertTrue(result['queued'])
+        job = self.fixture.db.rows("SELECT config FROM jobs WHERE stage='排队中'")[0]
+        self.assertEqual(json.loads(job['config'])['draft_count'], 2)
+        self.assertNotIn('task_action', json.loads(job['config']))
+
+        queued = self.fixture.db.rows("SELECT run_key,config FROM jobs WHERE stage='排队中'")[0]
+        self.assertEqual(self.engine.run(queued['run_key'], json.loads(queued['config'])), '已完成')
+        self.assertEqual(MeasuredSource.list_calls, 1)
+        self.assertEqual(len(self.fixture.db.rows('SELECT id FROM drafts')), 2)
+
+    def test_historical_task_shows_its_own_heat_snapshot(self):
+        self.collect()
+        job = self.fixture.db.rows("SELECT id FROM jobs WHERE run_key='collect:1'")[0]
+        first = self.fixture.db.rows('SELECT article_id,reads FROM job_metrics WHERE job_id=? ORDER BY article_id',
+                                     (job['id'],))[0]
+        self.fixture.db.execute('UPDATE article_metrics SET reads=99999 WHERE article_id=?',
+                                (first['article_id'],))
+        detail = Api(Backend(self.fixture.db, test_core.FakeVault(), self.fixture.path)).wb_detail(job['id'])
+        self.assertTrue(detail['ok'])
+        self.assertEqual(detail['picked'][0]['reads'], first['reads'])
+        self.assertIn('中国时间', detail['picked'][0]['observed_at'])
 
 
 if __name__ == '__main__':

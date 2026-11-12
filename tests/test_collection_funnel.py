@@ -120,11 +120,26 @@ class FunnelTest(unittest.TestCase):
         self.assert_consistent(funnel)
         text = format_funnel(job['funnel'])
         self.assertIn('扫描 2 个启用公众号（成功 2，失败 0），接口共返回 3 篇', text)
-        self.assertIn('最终可用素材 1 篇，完成稿件 1 篇', text)
+        self.assertIn('最终可用素材 1 篇，已生成草稿 1 篇', text)
         self.assertIn('- 虚构公众号甲：返回 1 篇，进入候选 1 篇，进入处理队列 1 篇；可用素材 1 篇', text)
         self.assertIn('- 虚构公众号乙：返回 2 篇，进入候选 1 篇，进入处理队列 1 篇；可用素材 0 篇；'
                       '跳过：超出时间范围 1、正文获取失败（旧记录可能含摘要失败） 1', text)
         self.assertNotIn(BODY[:20], job['funnel'])
+
+    def test_budget_stop_reports_unattempted_accounts_without_losing_articles(self):
+        self.accounts('虚构公众号甲', '虚构公众号乙', '虚构公众号丙')
+        config = {**self.config, 'task_action': 'collect'}
+        status, job, funnel = self.run_job('budget-stop', {
+            'acct0': [item('a1')],
+            'acct1': ApiError('本次数据采集已达到 10 元预算', kind='budget'),
+            'acct2': [item('c1')],
+        }, config=config)
+        self.assertEqual(status, '部分完成')
+        self.assertEqual(funnel['collection']['accounts_unattempted'], 1)
+        self.assertEqual(funnel['collection']['accounts_ok'], 1)
+        self.assertEqual(len(self.db.rows('SELECT id FROM articles')), 1)
+        self.assertIn('预算停止后 1 个未采集', format_funnel(job['funnel']))
+        self.assertNotIn('acct:acct2', funnel['accounts'])
 
     def test_account_failure_is_recorded_and_redacted(self):
         self.accounts('虚构公众号甲', '虚构公众号乙')

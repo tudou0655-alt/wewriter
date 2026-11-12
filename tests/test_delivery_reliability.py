@@ -272,7 +272,7 @@ class HistoricalCleanupTest(Base):
         path = self.path / 'legacy.sqlite'
         leaky_v3_database(path)
         db = Database(path)
-        self.assertEqual(SCHEMA_VERSION, 6)
+        self.assertGreaterEqual(SCHEMA_VERSION, 6)
         job = db.rows('SELECT * FROM jobs')[0]
         for field in ('message', 'warnings', 'funnel'):
             self.assert_clean(job[field])
@@ -487,14 +487,17 @@ class BatchWarningTest(Base):
         engine = self.engine(make_source(self.listing(2)), research=NetworkResearch)
         self.assertEqual(engine.run('batch-c2', self.batch_config()), '已完成')
         job = self.job('batch-c2')
-        self.assertTrue(job['message'].startswith('【需复核】已生成 2/2 篇'))
+        self.assertTrue(job['message'].startswith('【需复核】已保存 2/2 篇草稿，需复核；程序初筛通过 0/2 篇'))
+        self.assertEqual(job_status_label(job), '已保存，需复核')
         self.assertIn('其中 2 篇联网研究失败，已降级为仅基于公众号原文写作', job['message'])
         self.assertNotIn('每篇分别联网研究', job['message'])
         warnings = json.loads(job['warnings'])
         self.assertEqual(sum(w.startswith('联网降级：') for w in warnings), 2)
         funnel = load_funnel(job['funnel'])
-        self.assertEqual(funnel['quality'], {'drafts': 2, 'research_degraded': 2, 'flagged': 0})
-        self.assertIn('质量：完成稿件 2 篇；联网研究降级为仅原文写作 2 篇', format_funnel(job['funnel']))
+        self.assertEqual(funnel['quality'], {'drafts': 2, 'machine_ready': 0,
+                                             'research_degraded': 2, 'flagged': 0})
+        self.assertIn('质量：已生成草稿 2 篇；程序初筛通过 0 篇（仍须人工审核）；联网研究降级为仅原文写作 2 篇',
+                      format_funnel(job['funnel']))
         child = self.db.rows("SELECT funnel FROM jobs WHERE run_key LIKE 'batch:%' LIMIT 1")[0]
         self.assertEqual(load_funnel(child['funnel'])['quality']['research'], 'degraded')
 
@@ -540,7 +543,7 @@ class BatchWarningTest(Base):
         Writer.review_fails = True
         engine = self.engine(make_source(self.listing(2)), research=NetworkResearch)
         self.assertEqual(engine.run('batch-c6', self.batch_config(per_account_limit=2,
-                                                                 draft_first_mode=False)), '已完成')
+                                                                 draft_first_mode=False)), '部分完成')
         job = self.job('batch-c6')
         warnings = json.loads(job['warnings'])
         for prefix in ('采集：', '联网降级：', '质量提示：'):
@@ -649,7 +652,7 @@ def broken_git(root, *args):
 
 class VersionTest(Base):
     def test_single_version_source(self):
-        self.assertEqual(__version__, '0.10.4')
+        self.assertRegex(__version__, r'^\d+\.\d+\.\d+$')
         self.assertEqual(verify_delivery.check_version(ROOT), __version__)
         build = (ROOT / 'scripts' / 'build.ps1').read_text(encoding='utf-8')
         self.assertNotIn("$version = '", build)

@@ -1,6 +1,8 @@
 """T-023: the review does not hand source checking to the reader; the program checks itself (offline)."""
 import json
 import unittest
+from unittest.mock import patch
+from types import SimpleNamespace
 
 import test_core
 from test_article_quality import SequenceTransport, chat, package, system_text, user_json
@@ -8,6 +10,7 @@ from test_hotspots import HotSource, HotModel
 from wewriter.api import (VERIFY_RULES, ApiError, Model, is_verification_todo, merge_similar, split_todos)
 from wewriter.config import defaults
 from wewriter.engine import Engine
+from wewriter.pipeline.composition import compose
 from wewriter.research import WebResearch
 from wewriter.ui import review_marks
 
@@ -143,6 +146,59 @@ class VerifyFixture(unittest.TestCase):
 
 
 class PipelineVerifyTest(VerifyFixture):
+    def test_style_receives_sources_added_by_verification(self):
+        source = {'article_id': 7, 'source_id': 'S1', 'title': '虚构素材'}
+        added = {'source_id': 'W2', 'title': '虚构官方资料', 'url': 'https://example.gov.cn/test'}
+        output = {'title': '测试稿', 'body': '正文[S1][W2]', 'outline': [], 'review_notes': []}
+
+        class Writer:
+            def write(self, *_args):
+                return output
+
+        keys = []
+
+        def cached(_id, key, compute):
+            keys.append(key)
+            return compute()
+
+        run = SimpleNamespace(writer=Writer(), job={'id': 9},
+                              config={'draft_first_mode': False, 'quality_review_enabled': False},
+                              stage=lambda *_args: None, cached=cached)
+        engine = SimpleNamespace(check=lambda: None)
+
+        def verify(_engine, ctx, draft, _sources):
+            ctx.verified = {'sources': [added], 'report': ''}
+            return draft
+
+        def style(_engine, ctx, draft, sources):
+            self.assertEqual([s['source_id'] for s in sources], ['S1', added['source_id']])
+            ctx.styled = {'reason': '未改写'}
+            return draft
+
+        with patch('wewriter.pipeline.composition.verify_claims', verify), patch(
+                'wewriter.pipeline.composition.style_pass', style):
+            self.assertEqual(compose(engine, run, [source])[0], output)
+            first_key = keys[-1]
+            added['source_id'] = 'W3'
+            self.assertEqual(compose(engine, run, [source])[0], output)
+            self.assertNotEqual(keys[-1], first_key)
+
+    def test_unverified_quote_is_visible_even_when_verification_finishes(self):
+        Research.verify_result = FOUND
+        original_review = Writer.review
+
+        def review_with_quote(writer, draft, sources, config):
+            result = original_review(writer, draft, sources, config)
+            result['review_notes'].append('引号内容未能在资料中逐字核对，发布前请核实或改为转述：“虚构原话”')
+            return result
+
+        with patch.object(Writer, 'review', review_with_quote):
+            draft = self.run_job()
+        job = self.f.db.rows("SELECT warnings, status FROM jobs WHERE run_key='verify:1'")[0]
+        self.assertEqual(job['status'], '部分完成')
+        self.assertTrue(any('未核实的引语' in w for w in json.loads(job['warnings'])))
+        self.assertIn('## 质量提示', draft['report'])
+
     def test_found_source_is_cited_under_the_next_number(self):
         Research.verify_result = FOUND
         draft = self.run_job()
@@ -165,14 +221,16 @@ class PipelineVerifyTest(VerifyFixture):
         self.assertIn('截至发稿未查到官方公告', draft['body'])
         self.assertIn('未找到官方来源，相关说法已改为审慎表述或删除', draft['report'])
 
-    def test_network_failure_is_skipped_silently(self):
+    def test_network_failure_is_visible_in_task_status(self):
         Research.verify_result = ApiError('网络连接失败或超时', kind='network')
         draft = self.run_job()
         self.assertEqual(Writer.revisions, [])
         self.assertTrue(draft['body'].startswith('项目预算2200万元。'))
         self.assertIn('联网查证失败或超时，已跳过，稿件未改动', draft['report'])
-        job = self.f.db.rows("SELECT warnings FROM jobs WHERE run_key='verify:1'")[0]
-        self.assertFalse(any('查证' in w for w in json.loads(job['warnings'])))
+        job = self.f.db.rows("SELECT warnings, status FROM jobs WHERE run_key='verify:1'")[0]
+        self.assertEqual(job['status'], '部分完成')
+        self.assertTrue(any('自动查证后仍有 1 项待核实' in w for w in json.loads(job['warnings'])))
+        self.assertIn('## 质量提示', draft['report'])
 
     def test_switch_off_means_no_search(self):
         Research.verify_result = FOUND
@@ -187,6 +245,9 @@ class PipelineVerifyTest(VerifyFixture):
         self.assertTrue(draft['body'].startswith('项目预算2200万元。'))
         self.assertNotIn('W2', draft['sources'])
         self.assertIn('查证后的修订未通过校验，未采用', draft['report'])
+        job = self.f.db.rows("SELECT warnings, status FROM jobs WHERE run_key='verify:1'")[0]
+        self.assertEqual(job['status'], '部分完成')
+        self.assertTrue(any('自动查证后仍有 1 项待核实' in w for w in json.loads(job['warnings'])))
 
     def test_default_is_on(self):
         self.assertTrue(defaults()['auto_verify'])

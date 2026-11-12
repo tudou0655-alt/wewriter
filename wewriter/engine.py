@@ -20,7 +20,7 @@ from .config import validate, migrate
 from .db import stamp
 from .hotspots import count, rank  # noqa: F401
 from .logs import logger, redact
-from .costs import CostMeter
+from .costs import CostMeter, DATA_COLLECTION_BUDGET_CNY
 from .pipeline import collect, composition, materials, research
 # Re-exported so ``from wewriter.engine import ...`` keeps working after the split.
 from .pipeline.collect import (COLLECT_KEYS, COVERAGE_ENDS, FUNNEL_LABELS, MATERIAL_KEYS, METRIC_SOURCES,  # noqa: F401
@@ -144,7 +144,8 @@ class Engine:
             # Likewise the funnel describes this attempt only and is rebuilt, never summed.
             funnel = Funnel.for_attempt(self.db, job, reuse_collection=bool(json.loads(job["selected"])))
             transport = Transport(self.cancel)
-            transport.cost_meter = CostMeter(funnel, config.get('max_paid_requests'))
+            transport.cost_meter = CostMeter(funnel, config.get('max_paid_requests'),
+                                             DATA_COLLECTION_BUDGET_CNY)
             if source is None:
                 source = self._open_source(transport)
             ctx = _Run(self, job, config, transport, source)
@@ -319,14 +320,20 @@ class Engine:
         summary = self._batch_summary(parent_id, target, retried=True)
         self.db.update_job(parent_id, status=summary['status'], error_code='', message=summary['message'],
                            warnings=json.dumps(summary['warnings'], ensure_ascii=False))
-        self._fold_children(parent_id, summary['done'], summary['quality'])
+        self._fold_children(parent_id, summary['produced'], summary['quality'])
+
+    @staticmethod
+    def _machine_ready(funnel):
+        quality = (load_funnel(funnel) or {}).get('quality') or {}
+        return quality.get('machine_ready', True)  # old jobs have no machine screening result
 
     def _batch_summary(self, parent_id, target, extra='', retried=False):
         """Recompute a batch's status, message and warnings from the latest state of every child.
 
         Built from stored rows each time, so retries replace rather than accumulate warnings.
         The draft count and quality findings are reported separately."""
-        parent = self.db.rows('SELECT selected, funnel FROM jobs WHERE id=?', (parent_id,))[0]
+        parent = self.db.rows('SELECT selected, funnel, config FROM jobs WHERE id=?', (parent_id,))[0]
+        draft_first = json.loads(parent['config']).get('draft_first_mode', False)
         order = {aid: n for n, aid in enumerate(json.loads(parent['selected'] or '[]'), 1)}
         children = self.db.rows('''SELECT b.article_id, j.status, j.message, j.warnings, j.funnel,
             (SELECT title FROM drafts d WHERE d.job_id=j.id) draft_title,
@@ -335,15 +342,17 @@ class Engine:
         children.sort(key=lambda c: order.get(c['article_id'], len(order) + 1))
         parent_funnel = load_funnel(parent['funnel']) or {}
         warnings = ['采集：' + w for w in Funnel(self.db, parent_id, parent_funnel).collection_warnings()]
-        done = degraded = flagged = 0
+        produced = ready = degraded = flagged = 0
         for child in children:
             label = f"热度第 {order[child['article_id']]} 篇" if child['article_id'] in order else '单篇'
             if not child['draft_title']:
                 warnings.append(f"未完成：{label}：{child['message']}")
                 continue
-            done += 1
+            produced += 1
             notes = json.loads(child['warnings'] or '[]')
             quality = (load_funnel(child['funnel']) or {}).get('quality') or {}
+            if self._machine_ready(child['funnel']):
+                ready += 1
             is_degraded = (quality.get('research') == 'degraded' if quality
                            else any(RESEARCH_DEGRADED_MARK in str(n) for n in notes))
             name = f"{label}《{child['article_title'] or child['draft_title']}》"
@@ -354,11 +363,18 @@ class Engine:
             if others:
                 flagged += 1
                 warnings += [f'质量提示：{name}：{n}' for n in others]
-        status = '已完成' if done >= target else ('部分完成' if done else '失败')
-        message = f'已生成 {min(done, target)}/{target} 篇独立主题文章'
+            if not self._machine_ready(child['funnel']) and not others and not is_degraded:
+                flagged += 1
+                warnings.append(f'初筛未通过：{name}尚未完成自动审核，已保留草稿供人工复核')
+        done = produced if draft_first else ready
+        status = '已完成' if done >= target else ('部分完成' if produced else '失败')
+        message = (f'已生成 {min(produced, target)}/{target} 篇独立主题文章' if ready == produced else
+                   f'已生成 {produced} 篇草稿，程序初筛通过 {ready}/{target} 篇；全部仍须人工审核')
+        if draft_first and produced >= target and (flagged or degraded):
+            message = f'已保存 {produced}/{target} 篇草稿，需复核；程序初筛通过 {ready}/{target} 篇；全部仍须人工审核'
         if retried:
             message += '（含单篇重试结果）'
-        if done and not degraded:
+        if produced and not degraded:
             message += '，每篇分别联网研究和写作'
         if degraded:
             message += f'；其中 {degraded} 篇联网研究失败，已降级为仅基于公众号原文写作，未经联网核实'
@@ -367,10 +383,12 @@ class Engine:
         collection_notes = sum(1 for w in warnings if w.startswith('采集：'))
         if collection_notes:
             message += f'；采集阶段有 {collection_notes} 条提示'
-        if done and (degraded or flagged):
+        if produced and (degraded or flagged):
             message = '【需复核】' + message
-        return {'status': status, 'message': message + extra, 'warnings': warnings, 'done': done,
-                'quality': {'drafts': done, 'research_degraded': degraded, 'flagged': flagged}}
+        return {'status': status, 'message': message + extra, 'warnings': warnings,
+                'done': done, 'produced': produced,
+                'quality': {'drafts': produced, 'machine_ready': ready,
+                            'research_degraded': degraded, 'flagged': flagged}}
 
     def _fold_children(self, parent_id, drafts, quality=None):
         """Batch funnel: material layers are the sum of each child article's latest attempt."""
@@ -444,76 +462,97 @@ class Engine:
             logger.exception("单篇任务 %s 异常，继续处理其余文章", child['run_key'])
         return self.db.rows('SELECT * FROM jobs WHERE id=?', (child['id'],))[0]
 
-    # A single article that failed on a timeout or dropped connection may be replaced, but a
-    # network outage would fail every replacement too, so at most this many per batch.
-    NETWORK_REPLACEMENTS = 2
+    # Two consecutive network failures usually mean the shared service is unavailable.
+    MAX_CONSECUTIVE_NETWORK_FAILURES = 2
 
     def run_separate(self, job, config, selected, source=None):
-        # Each output owns a child job: a retry never rewrites completed outputs.
+        # Each output owns a child job. Ranked candidates are attempted until the
+        # target is reached, the queue is exhausted, or a shared failure stops it.
         target = config.get('draft_count', 3)
         selected = self._batch_queue(job, config, selected)
-        # Collection is paid, but research and writing are still avoidable here.
-        # When the ranked queue cannot reach the requested count, do not spend
-        # model calls on a batch that is already guaranteed to be short.
-        saved = self.db.rows('''SELECT 1 FROM drafts d JOIN batch_items b ON b.child_job_id=d.job_id
-                                WHERE b.parent_job_id=? LIMIT 1''', (job['id'],))
-        if len(selected) < target and not saved:
-            origin = ('素材库' if config.get('task_action') == 'write' else '采集完成')
-            message = (f'{origin}：目标 {target} 篇，只有 {len(selected)} 篇未使用且符合选文条件；'
-                       '未启动联网研究或模型写作。'
-                       + ('本次未重新采集；请先采集素材、降低篇数或调整阅读量门槛' if config.get('task_action') == 'write'
-                          else '采集请求已经发生，可能产生采集费用；请调整时间范围、公众号或篇数后新建采集任务'))
-            self.db.update_job(job['id'], status='失败', stage='完成', message=message,
-                               error_code=ErrorCode.MATERIAL)
-            self.notify(message)
-            return '失败'
-        primary_count = min(target, len(selected))
-        done, titles, replacement_slots = 0, [], 0
-        # Failures waiting for a replacement, then (failed label, reason, replacement label) pairs.
-        pending, replacements, network_grants = [], [], 0
+        # Bound each attempt; completed drafts and permanently unsuitable candidates
+        # are read from child jobs so a later resume advances through the same queue.
+        attempt_limit = target * 3
+        previous = {row['article_id']: row for row in self.db.rows('''
+            SELECT b.article_id,j.error_code,j.funnel,d.title draft_title
+            FROM batch_items b JOIN jobs j ON j.id=b.child_job_id
+            LEFT JOIN drafts d ON d.job_id=j.id WHERE b.parent_job_id=?''', (job['id'],))}
+        draft_first = config.get('draft_first_mode', False)
+        done = sum(bool(row['draft_title']) for row in previous.values()) if draft_first else 0
+        titles, consecutive_network = [], 0
+        pending, replacements = [], []
+        attempted = 0
         last_code = ErrorCode.MATERIAL if not selected else ''
+        stop_reason = ''
         for rank_position, article_id in enumerate(selected, 1):
-            is_replacement = rank_position > primary_count
-            if is_replacement and (done >= target or replacement_slots <= 0):
+            if done >= target:
                 break
             self.check()
             label = f'热度第 {rank_position} 篇'
-            self.db.update_job(job['id'], stage=(f'补位写作：{label}' if is_replacement else
-                                                 f'逐篇写作 {rank_position}/{primary_count}'))
+            old = previous.get(article_id)
+            if old and old['draft_title']:
+                titles.append(old['draft_title'])
+                if not draft_first and self._machine_ready(old['funnel']):
+                    done += 1
+                    if rank_position > target and pending:
+                        replacements.append((*pending.pop(0), label))
+                elif not draft_first and rank_position <= target:
+                    pending.append((label, '程序初筛未通过'))
+                continue
+            if old and old['error_code'] in (ErrorCode.MATERIAL, ErrorCode.MODEL_OUTPUT):
+                if rank_position <= target:
+                    pending.append((label, '素材提取失败' if old['error_code'] == ErrorCode.MATERIAL
+                                    else '模型输出未通过校验'))
+                continue
+            if attempted >= attempt_limit:
+                stop_reason = f'；本轮已处理 {attempt_limit} 篇候选仍未达到目标，可继续原任务处理后续候选'
+                break
+            attempted += 1
+            self.db.update_job(job['id'], stage=f'逐篇写作：{label}（已完成 {done}/{target}）')
             child = self._run_child(job, config, article_id, titles, source)
             self.check()
             drafts = self.db.rows('SELECT title FROM drafts WHERE job_id=?', (child['id'],))
             if drafts:
-                done += 1
                 titles.append(drafts[0]['title'])
-                if is_replacement:
-                    replacement_slots -= 1
-                    replacements.append((*pending.pop(0), label))
+                consecutive_network = 0
+                if draft_first or self._machine_ready(child['funnel']):
+                    done += 1
+                    if rank_position > target and pending:
+                        replacements.append((*pending.pop(0), label))
+                elif rank_position <= target:
+                    pending.append((label, '程序初筛未通过'))
                 continue
-            # Old (pre-0.10.1) child rows have no code; fall back to their message.
             code = child.get('error_code')
-            reason = None
-            if code == ErrorCode.MATERIAL or (not code and child['stage'] == '正文与摘要'
-                                              and child['message'].startswith('素材处理未完成：')):
-                reason = '素材提取失败'
-            elif code == ErrorCode.NETWORK and network_grants < self.NETWORK_REPLACEMENTS:
-                # Timeouts and connection failures only; key, balance, permission and request
-                # errors (AUTH / API codes) would hit every replacement and are not replaced.
-                network_grants += 1
-                reason = '因超时或网络中断失败'
             last_code = code or ErrorCode.API
-            if reason and not is_replacement:
-                replacement_slots += 1
+            # Old child jobs may lack error_code; their material-stage message is still usable.
+            material = code == ErrorCode.MATERIAL or (not code and child['stage'] == '正文与摘要'
+                and child['message'].startswith('素材处理未完成：'))
+            if code == ErrorCode.NETWORK:
+                consecutive_network += 1
+                reason = '因超时或网络中断失败'
+                if consecutive_network >= self.MAX_CONSECUTIVE_NETWORK_FAILURES:
+                    stop_reason = '；连续网络故障，已停止继续尝试其他文章'
+            elif material:
+                consecutive_network = 0
+                reason = '素材提取失败'
+            elif code == ErrorCode.MODEL_OUTPUT:
+                consecutive_network = 0
+                reason = '模型输出未通过校验'
+            elif code == ErrorCode.WRITE:
+                consecutive_network = 0
+                reason = '写作调用失败'
+            else:
+                stop_reason = '；出现需要处理的共同故障，已停止后续写作'
+                reason = None
+            if reason and rank_position <= target:
                 pending.append((label, reason))
-            elif not reason and is_replacement:
-                # A shared failure (model, key, research) would hit every
-                # replacement too; do not walk the whole queue.
-                replacement_slots -= 1
-            # A replacement that failed in a replaceable way leaves its slot to the next article.
+            if stop_reason:
+                break
         extra = ''
         if replacements:
             extra += ''.join(f'；{failed}{reason}，已由{used}补位' for failed, reason, used in replacements)
-        if len(selected) < target or (done < target and replacement_slots > 0):
+        extra += stop_reason
+        if done < target and not stop_reason:
             extra += '；符合条件的新素材不足，可在运行记录中“按当前配置新建采集”或扩大时间范围'
             accounts = (load_funnel(self.db.rows('SELECT funnel FROM jobs WHERE id=?', (job['id'],))[0]['funnel'])
                         or {}).get('accounts', {})
@@ -521,8 +560,8 @@ class Engine:
                 extra += '（降级为仅最新一篇的公众号不会因扩大时间范围恢复历史覆盖）'
         summary = self._batch_summary(job['id'], target, extra)
         self.db.update_job(job['id'], status=summary['status'], stage='完成', message=summary['message'],
-                           error_code='' if summary['done'] else last_code,
+                           error_code='' if summary['produced'] else last_code,
                            warnings=json.dumps(summary['warnings'], ensure_ascii=False))
-        self._fold_children(job['id'], summary['done'], summary['quality'])
+        self._fold_children(job['id'], summary['produced'], summary['quality'])
         self.notify(summary['message'])
         return summary['status']

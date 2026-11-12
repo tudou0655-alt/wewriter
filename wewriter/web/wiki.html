@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<script>/* Theme before first paint, so a forced light/dark choice never flashes the other one. */
+try { var t = sessionStorage.getItem('theme'); document.documentElement.dataset.theme = t === 'dark' ? 'dark' : t === 'light' ? 'light' : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) {}</script>
+<style>
+/* Page changes cross-fade instead of blanking; the sidebar is matched so it stays put. */
+@view-transition { navigation: auto; }
+.rail { view-transition-name: rail; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .1s; }
+::view-transition-group(rail) { animation-duration: 0s; }
+@media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
+</style>
+<title>WeWriter 知识库</title>
+<link rel="stylesheet" href="styles/tokens.css"><link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/components.css"><link rel="stylesheet" href="styles/pages/wiki.css"></head><body><div class="app">
+  <aside class="rail">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">W</span><div class="brand-copy"><b>WeWriter</b><span>内容创作工作室</span></div></div>
+    <nav class="nav" aria-label="页面" id="nav"></nav>
+    <div class="foot" id="foot"></div>
+  </aside>
+
+  <main><div class="wiki-wrap"><h1>知识库</h1>
+<div class="tools"><button class="btn" id="knowledge">主题知识</button><button class="btn" id="habits">我的写作偏好</button></div>
+<section class="pane"><div class="tools"><label>查看范围<select id="scope"></select></label><button class="btn" id="compile" hidden>归纳这个主题</button></div>
+<div class="scroll"><div id="graph" class="graph"></div></div></section>
+<section class="pane" id="detail" aria-live="polite"></section>
+<details class="pane" id="sources-panel"><summary>添加资料</summary><label>主题<input id="topic" maxlength="80"></label>
+<label>出处<input id="origin" maxlength="200"></label><label>资料原文<textarea id="body" maxlength="80000"></textarea></label>
+<div class="tools"><button class="btn primary" id="add">保存资料</button><button class="btn" id="import">导入文件</button>
+<button class="btn" id="backfill">整理已有公众号摘要</button></div></details></div></main></div>
+<div class="toast" id="toast" hidden></div><script src="common.js"></script><script src="wiki.js"></script></body></html>

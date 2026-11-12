@@ -434,6 +434,18 @@ class WeReadTest(unittest.TestCase):
         source.articles(account, 20)
         self.assertEqual(source.last_coverage['end'], 'provider_page')
 
+    def test_provider_uses_enabled_managed_accounts_without_shelf_request(self):
+        primary, session, db = Mock(), Mock(), Mock()
+        primary.history.return_value = {'data': [], 'offset': '', 'is_end': 1}
+        db.accounts.return_value = [{'identifier': BOOK, 'name': '虚构已管理账号'}]
+        source = WeReadSource('[]', db, session=session, primary=primary)
+        self.assertEqual(source.articles(BOOK, 24), [])
+        db.accounts.assert_called_once_with(enabled=True)
+        session.shelf.assert_not_called()
+        primary.history.assert_called_once_with('虚构已管理账号', '')
+        with self.assertRaisesRegex(ApiError, '本地启用列表未找到'):
+            source.articles('MP_WXS_456', 24)
+
     def test_dajiala_list_carries_reads_and_pages_until_window_start(self):
         from datetime import datetime, timezone
         account, biz = 'MP_WXS_3533509125', 'MzUzMzUwOTEyNQ=='

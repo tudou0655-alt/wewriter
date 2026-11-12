@@ -23,7 +23,7 @@ function snapshot() {
 }
 const LABELS = { writer: '写作模型', custom: '自定义模型', summary: '摘要模型', search: '联网搜索模型', searchprovider: '联网搜索服务', words: '目标篇幅', style: '写作风格',
   stylecustom: '自定义风格', extra: '补充要求', fmt: '导出格式', dir: '保存位置', oaurl: '接口地址', dsurl: '接口地址', blurl: '接口地址', schedtime: '定时时间',
-  limit: '读取上限', minreads: '最低阅读量', paidcap: '付费请求次数上限', 'sw-sched': '每日自动运行', 'sw-draftfirst': '优先生成草稿', 'sw-review': 'AI 二审', 'sw-verify': '自动查证', 'sw-vision': '识图', 'sw-recollect': '重新采集', 'sw-startup': '开机启动' };
+  limit: '读取上限', minreads: '最低阅读量', paidcap: '付费请求次数上限', 'sw-sched': '每日自动运行', 'sw-draftfirst': '优先生成草稿', 'sw-wiki': '写作知识库', 'sw-review': 'AI 二审', 'sw-verify': '自动查证', 'sw-vision': '识图', 'sw-recollect': '重新采集', 'sw-startup': '开机启动' };
 function changes() {
   if (!saved) return [];
   const now = snapshot();
@@ -60,7 +60,7 @@ function wordsUi() {
   const raw = $('words').value.trim(), n = Number(raw), ok = /^\d+$/.test(raw) && n >= 200 && n <= 20000;
   $('words').classList.toggle('bad', !ok);
   $('words-hint').className = 'hint' + (ok ? '' : ' bad');
-  $('words-hint').textContent = ok ? '可填 200—20000 的任意整数；这是写作目标，实际字数会有浮动' : '请填写 200—20000 之间的整数';
+  $('words-hint').textContent = ok ? '可填 200—20000 的任意整数；目标允许上下浮动 20%，超出范围保留草稿并提示' : '请填写 200—20000 之间的整数';
   document.querySelectorAll('[data-w]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.w === raw)));
   return ok;
 }
@@ -96,6 +96,7 @@ async function load() {
   const util = r.utility_costs || { requests: 0, known_cny: '0', unknown_requests: 0 };
   $('utility-cost').textContent = `设置页连接测试和风格卡生成：${util.requests} 次付费请求，已知费用估算 ¥${util.known_cny}` +
     (util.unknown_requests ? `；${util.unknown_requests} 次费用未知` : '') + '。与写稿任务分别记录。';
+  setSwitch('wiki', r.wiki_enabled);
   setSwitch('sched', r.schedule_enabled); setSwitch('draftfirst', r.draft_first !== false); setSwitch('review', r.review); setSwitch('verify', r.verify !== false); setSwitch('vision', r.vision);
   setSwitch('recollect', r.recollect); setSwitch('startup', r.startup);
   for (const [id, name] of Object.entries(KEYMAP)) if (name) keyHint(id, name);
@@ -201,7 +202,7 @@ $('save').addEventListener('click', async () => {
     style_preset: style === 'custom' ? '' : style, style_custom: style === 'custom' ? $('style-custom').value : '',
     style_extra: $('extra').value, export_format: $('fmt').value,
     export_dir: $('dir').value === '每次导出时选择' ? '' : $('dir').value,
-    schedule_enabled: sw('sched'), schedule_time: $('sched-time').value, draft_first: sw('draftfirst'), review: sw('review'), verify: sw('verify'), vision: sw('vision'),
+    wiki_enabled: sw('wiki'), schedule_enabled: sw('sched'), schedule_time: $('sched-time').value, draft_first: sw('draftfirst'), review: sw('review'), verify: sw('verify'), vision: sw('vision'),
     recollect: sw('recollect'), startup: sw('startup'), limit: $('limit').value,
     min_reads: $('minreads').value, max_paid_requests: $('paidcap').value, keys };
   $('save').disabled = true;
@@ -220,7 +221,7 @@ $('clear-data').addEventListener('click', async () => {
   const button = $('clear-data');
   button.disabled = true;
   try {
-    if (!(await confirmBox('清除后台数据', '将清空文章、稿件、任务历史和分析/图片缓存。保留公众号、API Key、登录信息及其他配置，暂停每日自动运行。已导出的文件不受影响。执行前自动备份数据库（不含图片文件），清除后可重新采集原文章。', '备份并清除', '取消'))) return;
+    if (!(await confirmBox('清除后台数据', '将清空文章、稿件、任务历史、写作知识库和分析/图片缓存。保留公众号、API Key、登录信息及其他配置，暂停每日自动运行。已导出的文件不受影响。执行前自动备份数据库（不含图片文件），清除后可重新采集原文章。', '备份并清除', '取消'))) return;
     button.textContent = '正在备份并清理…';
     const r = await call('set_clear_data', true);
     if (!r) return;
@@ -316,3 +317,5 @@ document.addEventListener('click', async e => {
   }
 });
 ready(loadStyleLib);
+
+$('manage-wiki').onclick=()=>go('wiki');

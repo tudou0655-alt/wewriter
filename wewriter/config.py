@@ -15,6 +15,7 @@ DEFAULTS = {
     "auto_verify": True,
     # T-029: the style card distilled from the example library (None: the built-in default card),
     # and whether a style review may rewrite the wording of a draft.
+    "wiki_enabled": False,
     "style_card": None, "style_review_enabled": True,
     "selection_mode": "hot", "min_reads": 0,
     "source_provider": "weread",

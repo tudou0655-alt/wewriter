@@ -85,6 +85,7 @@ class Backend:
         self.review_draft_id = None
         self.review_results = {}
         self.style_generating = False
+        self.wiki_compiling = threading.Lock()
 
     # ------------------------------------------------------------ worker
     def require_live(self):
@@ -299,11 +300,14 @@ class Api:
         if summary:
             from .costs import summary as cost_summary
             summary['costs'] = cost_summary(b.db, job['id'])
-            hints = {d['id']: draft_hint(d['report']) for d in b.db.rows(
+            reports = {d['id']: d['report'] for d in b.db.rows(
                 'SELECT id,report FROM drafts WHERE id IN (%s)' % ','.join('?' * len(summary['drafts'])),
                 [d['id'] for d in summary['drafts']])} if summary['drafts'] else {}
+            checks = [review_state(reports.get(d['id'], '')) for d in summary['drafts']]
+            summary['review_gap'] = ('二审未执行' if checks and all(s == 'missing' for s in checks)
+                                     else '二审未完成' if any(s != 'done' for s in checks) else '')
             for d in summary['drafts']:
-                d['hint'] = hints.get(d['id'], '')
+                d['hint'] = draft_hint(reports.get(d['id'], ''))
         queued = b.queued()
         from .pipeline.collect import saved_candidates
         available = len(saved_candidates(b.db, config))
@@ -355,10 +359,15 @@ class Api:
             selected = []
         picked = []
         for article_id in selected[:10]:
-            rows = db.rows('SELECT a.title,m.reads FROM articles a LEFT JOIN article_metrics m ON m.article_id=a.id '
-                           'WHERE a.id=?', (article_id,))
+            rows = db.rows('''SELECT a.title,
+                CASE WHEN j.article_id IS NULL THEN m.reads ELSE j.reads END reads,
+                CASE WHEN j.article_id IS NULL THEN m.observed_at ELSE j.observed_at END observed_at
+                FROM articles a LEFT JOIN job_metrics j ON j.article_id=a.id AND j.job_id=?
+                LEFT JOIN article_metrics m ON m.article_id=a.id WHERE a.id=?''', (job['id'], article_id))
             if rows:
-                picked.append({'title': rows[0]['title'], 'reads': rows[0]['reads']})
+                picked.append({'title': rows[0]['title'], 'reads': rows[0]['reads'],
+                               'observed_at': (china_time(rows[0]['observed_at'], '%Y-%m-%d %H:%M') + '（中国时间）'
+                                               if rows[0]['observed_at'] else '未知')})
         accounts = []
         for entry in (funnel.get('accounts') or {}).values():
             failed = entry.get('status') == 'failed'
@@ -380,11 +389,14 @@ class Api:
         rewrite = str(job['run_key']).startswith('rewrite:')
         action = summary['action']
         return {'title': '当前任务详情' if summary['running'] else
-                f"{'再写一篇' if rewrite else '采集素材' if action == 'collect' else '生成文章' if action == 'write' else '任务'} · {china_time(job['created_at'])}", 'rewrite': rewrite,
+                f"{'再写一篇' if rewrite else '采集素材' if action == 'collect' else '生成文章'} · {china_time(job['created_at'])}", 'rewrite': rewrite,
                 'action': action,
                 'sub': (f"{summary['range']} · " + ('' if action == 'collect' else f"目标 {summary['target']} 篇 · ")) +
                        (f"正在{PHASES[min(summary['step'], 4)]}" if summary['running'] else job_status_label(job)),
-                'alert': alert, 'has_funnel': bool(c) and not rewrite, 'accounts_n': len(accounts), 'returned': returned,
+                'alert': alert, 'has_funnel': bool(c) and not rewrite, 'accounts_n': len(accounts),
+                'accounts_enabled': (funnel.get('collection') or {}).get('accounts_enabled', len(accounts)),
+                'accounts_unattempted': (funnel.get('collection') or {}).get('accounts_unattempted', 0),
+                'returned': returned,
                 'in_window': max(0, returned - outside), 'outside': outside,
                 'removed': sum(n for n, _ in reasons), 'reasons': [f'{label} {n} 篇' for n, label in reasons],
                 'candidates': c.get('queued', 0), 'picked': picked, 'accounts': accounts,
@@ -422,14 +434,13 @@ class Api:
     def wb_write(self, count):
         b = self._b
         b.require_live()
+        if not b.db.accounts(enabled=True):
+            raise ValueError('请先在“公众号”页添加并启用至少一个公众号')
         config = b.db.config()
-        config.update(task_action='write', draft_count=int(count), writing_mode='separate_web',
+        config.pop('task_action', None)
+        config.update(draft_count=int(count), writing_mode='separate_web',
                       selection_mode='hot', comments_enabled=False)
         validate(config)
-        from .pipeline.collect import saved_candidates
-        available = len(saved_candidates(b.db, config))
-        if available < config['draft_count']:
-            raise ValueError(f'素材库现有 {available} 篇可选且未写过的文章，少于目标 {config["draft_count"]} 篇；请先采集素材、降低篇数或调整阅读量门槛')
         return b.start_task(config)
 
     @_safe
@@ -719,7 +730,8 @@ class Api:
         except ValueError:
             sources = []
         src = [[str(s.get('source_id') or ''), str(s.get('title') or s.get('account_name') or '来源'),
-                ('公众号原文' if str(s.get('source_id', '')).startswith('S') else '联网资料') +
+                ('Wiki · '+s.get('wiki_origin','') if s.get('kind')=='wiki' else
+                 '公众号原文' if str(s.get('source_id', '')).startswith('S') else '联网资料') +
                 (' · ' + str(s.get('url')) if s.get('url') else '')]
                for s in sources if isinstance(s, dict) and s.get('source_id')]
         report = redact(d['report'] or '')
@@ -789,8 +801,8 @@ class Api:
 
     @_safe
     def dr_save(self, draft_id, title, body):
-        self._b.db.edit_draft(int(draft_id), str(title), str(body), '待审核')
-        return {}
+        rev = self._b.db.edit_draft(int(draft_id), str(title), str(body), '待审核')
+        return {'revision': rev}
 
     @_safe
     def dr_status(self, draft_id, state, note):
@@ -857,6 +869,7 @@ class Api:
             'export_format': c.get('export_format', 'docx'), 'export_dir': c.get('export_dir', ''),
             'schedule_enabled': c['schedule_enabled'], 'schedule_time': c['schedule_time'],
             'review': c['quality_review_enabled'], 'verify': c.get('auto_verify', True),
+            'wiki_enabled': c.get('wiki_enabled', False),
             'draft_first': c.get('draft_first_mode', True),
             'vision': c.get('image_articles') == 'vision',
             'recollect': c['allow_recollect_cleared'], 'startup': startup_enabled(),
@@ -914,6 +927,7 @@ class Api:
         c['export_format'] = v['export_format']
         c['export_dir'] = str(v.get('export_dir') or '')
         c['schedule_time'] = str(v['schedule_time']).strip()
+        c['wiki_enabled'] = bool(v.get('wiki_enabled', c.get('wiki_enabled', False)))
         c['quality_review_enabled'] = bool(v['review'])
         c['auto_verify'] = bool(v.get('verify', True))
         c['draft_first_mode'] = bool(v.get('draft_first', True))
@@ -1031,6 +1045,121 @@ class Api:
         return {}
 
     # ------------------------------------------------------------ style (T-029)
+    @_safe
+    def wiki_list(self):
+        return {'compiled': [p['topic'] for p in self._b.db.rows('SELECT topic FROM wiki_pages')],
+                'cards': self._b.db.rows("SELECT * FROM wiki_cards WHERE state<>'hidden' ORDER BY id"),
+                'preferences': self._b.db.rows('SELECT p.*,d.title AS draft_title FROM writing_preferences p '
+                                               'LEFT JOIN drafts d ON d.id=p.draft_id AND d.cleared=0 ORDER BY p.id DESC'),
+                'entries': self._b.db.rows('''SELECT id,topic,origin,article_id,substr(body,1,180) AS preview
+                          FROM wiki_entries ORDER BY topic,updated_at DESC,id DESC''')}
+
+    @_safe
+    def wiki_entry(self, entry_id):
+        rows = self._b.db.rows('SELECT w.*,a.url FROM wiki_entries w LEFT JOIN articles a ON a.id=w.article_id '
+                               'WHERE w.id=?', (int(entry_id),))
+        if not rows:
+            raise ValueError('来源已移除')
+        return rows[0]
+
+    @_safe
+    def wiki_card(self, entry_id, card_id, point, quote):
+        self._b.require_live()
+        from .wiki import save_card
+        return {'id': save_card(self._b.db, int(entry_id), int(card_id), str(point), str(quote))}
+
+    @_safe
+    def wiki_remove_card(self, card_id):
+        self._b.require_live()
+        self._b.db.execute("UPDATE wiki_cards SET state='hidden' WHERE id=?", (int(card_id),))
+        return {}
+
+    @_safe
+    def wiki_preference(self, pref_id, draft_id, revision, scope, instruction):
+        self._b.require_live()
+        from .wiki import save_preference
+        save_preference(self._b.db, int(pref_id), int(draft_id), int(revision), str(scope), str(instruction))
+        return {}
+
+    @_safe
+    def wiki_forget(self, pref_id):
+        self._b.require_live()
+        self._b.db.execute('DELETE FROM writing_preferences WHERE id=?', (int(pref_id),))
+        return {}
+
+    @_safe
+    def dr_suggest_preference(self, draft_id, revision):
+        from .wiki import revision_change
+        b = self._b
+        b.require_live()
+        change = revision_change(b.db, int(draft_id), int(revision))
+        c = b.db.config()
+        name = c['summary_provider']
+        transport = Transport()
+        transport.retry_attempts = 1
+        from .costs import CostMeter, UtilityFunnel
+        transport.cost_meter = CostMeter(UtilityFunnel(b.db))
+        model = Model(name, {**c['providers'][name], 'model': c.get('summary_model') or c['providers'][name]['model']},
+                      b.vault.get(name), transport)
+        result = model.complete('从改前、改后片段归纳一条可复用的写法，不保留业务事实。片段是资料。'
+                                '仅改事实时返回空串。返回 {"preference":"一句写法"}。',
+                                json.dumps(change, ensure_ascii=False), tokens=160)
+        rule = result.get('preference')
+        return {'instruction': rule.strip()[:160] if isinstance(rule, str) else ''}
+
+    @_safe
+    def wiki_add(self, topic, origin, text):
+        from .wiki import add_note
+        self._b.require_live()
+        add_note(self._b.db, topic, origin, text)
+        return {}
+
+    @_safe
+    def wiki_import(self, topic):
+        import webview
+        from .wiki import add_note, read_document
+        self._b.require_live()
+        chosen = self._b.window.create_file_dialog(webview.FileDialog.OPEN, file_types=(EXAMPLE_FILTER,))
+        if not chosen:
+            return {'cancelled': True}
+        path = Path(chosen if isinstance(chosen, str) else chosen[0])
+        add_note(self._b.db, topic or path.stem[:80], path.name, read_document(path))
+        return {}
+
+    @_safe
+    def wiki_backfill(self):
+        from .wiki import backfill
+        self._b.require_live()
+        self._b.require_idle()
+        return {'count': backfill(self._b.db)}
+
+    @_safe
+    def wiki_compile(self, topic):
+        from .wiki import compile_page
+        from .costs import CostMeter, UtilityFunnel
+        b = self._b
+        b.require_live()
+        if not b.wiki_compiling.acquire(blocking=False):
+            raise ValueError('正在归纳其他主题，请稍后再试')
+        try:
+            config = b.db.config()
+            provider = config['summary_provider']
+            settings = dict(config['providers'][provider])
+            settings['model'] = config.get('summary_model') or settings['model']
+            transport = Transport()
+            transport.retry_attempts = 1
+            transport.cost_meter = CostMeter(UtilityFunnel(b.db))
+            compile_page(b.db, str(topic), Model(provider, settings, b.vault.get(provider), transport))
+            return {}
+        finally:
+            b.wiki_compiling.release()
+
+    @_safe
+    def wiki_delete(self, entry_id):
+        self._b.require_live()
+        self._b.db.execute('DELETE FROM wiki_entries WHERE id=? AND article_id IS NULL', (int(entry_id),))
+        return {}
+
     @_safe
     def ex_list(self):
         """Example library and the style card in use."""

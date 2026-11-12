@@ -3,13 +3,16 @@ import json
 import tempfile
 import unittest
 import urllib.error
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import Mock
 
-from wewriter.api import Dajiala, Model, Transport
+from wewriter.api import ApiError, Dajiala, Model, Transport
 from wewriter.config import defaults
-from wewriter.costs import CostMeter, summary
+from wewriter.costs import CostMeter, DAJIALA_CNY, DATA_COLLECTION_BUDGET_CNY, summary
 from wewriter.db import Database
+from wewriter.engine import Engine
+from wewriter.pipeline import collect
 from wewriter.pipeline.collect import Funnel
 from wewriter.webapp import Api, Backend
 
@@ -48,6 +51,55 @@ class CostsTest(unittest.TestCase):
         self.job = self.db.job('cost-fixture', defaults())
         self.funnel = Funnel.for_attempt(self.db, self.job, False)
         self.meter = CostMeter(self.funnel)
+
+    def test_collection_budget_reserves_failed_requests_before_send(self):
+        meter = CostMeter(self.funnel, collection_budget_cny=DATA_COLLECTION_BUDGET_CNY)
+        url = 'https://www.dajiala.com/fbmain/monitor/v3/post_history'
+        for _ in range(62):
+            meter.begin(url, {'nickname': '虚构公众号'})
+        with self.assertRaisesRegex(ApiError, '10 元预算'):
+            meter.begin(url, {'nickname': '虚构公众号'})
+        self.assertEqual(len(meter.events), 62)
+        self.assertTrue(all(event['status'] == 'unknown' for event in meter.events))
+        self.assertEqual(meter._collection_reserved(), Decimal('9.92'))
+        self.assertIsNotNone(meter.begin('https://api.deepseek.com/chat/completions',
+                                         {'model': 'deepseek-flash'}))
+
+    def test_unknown_collection_price_is_blocked_before_send(self):
+        meter = CostMeter(self.funnel, collection_budget_cny=DATA_COLLECTION_BUDGET_CNY)
+        with self.assertRaisesRegex(ApiError, '未知单价'):
+            meter.begin('https://api.everyinfra.com/api/v1/social',
+                        {'action': 'account_articles'})
+        self.assertEqual(meter.events, [])
+
+    def test_budgeted_source_excludes_unknown_price_fallback(self):
+        class Vault:
+            def has(self, name):
+                return name in ('dajiala', 'everyinfra')
+
+            def get(self, name):
+                return '[]' if name == 'weread' else 'OBVIOUSLY_FAKE_TEST_KEY'
+
+        engine = Engine(self.db, Vault())
+        transport = Transport()
+        transport.cost_meter = CostMeter(self.funnel, collection_budget_cny=DATA_COLLECTION_BUDGET_CNY)
+        source = collect.open_source(engine, transport)
+        self.assertIsNotNone(source.primary)
+        self.assertIsNone(source.provider)
+
+    def test_collection_retry_obeys_budget_and_never_sends_second_request(self):
+        transport = Transport()
+        transport.cost_meter = CostMeter(self.funnel, collection_budget_cny=DATA_COLLECTION_BUDGET_CNY)
+        transport.opener = Mock()
+        transport.opener.open.side_effect = urllib.error.HTTPError(
+            'https://www.dajiala.com/fbmain/monitor/v3/post_history',
+            503, 'temporary', {'Retry-After': '0'}, None)
+        transport.cancel.wait = lambda _seconds: False
+        transport.cost_meter.collection_budget_cny = DAJIALA_CNY
+        with self.assertRaisesRegex(ApiError, '10 元预算'):
+            Dajiala('OBVIOUSLY_FAKE_TEST_KEY', transport).history('虚构公众号')
+        self.assertEqual(transport.opener.open.call_count, 1)
+        self.assertEqual(len(transport.cost_meter.events), 1)
 
     def test_actual_provider_call_and_model_tokens_are_separate(self):
         transport = Transport()

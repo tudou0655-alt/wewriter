@@ -5,9 +5,13 @@ import unittest
 from pathlib import Path
 
 import test_core
+from main import demo_data
 from test_hotspots import HotSource
 from test_independent import IndependentModel, ResearchFake
+from wewriter.anonymity import block_list, hits
+from wewriter.db import Database
 from wewriter.engine import Engine
+from wewriter.pipeline.composition import REVIEW_FAILED_NOTE
 from wewriter.ui import job_status_label
 from wewriter.webapp import Api, Backend
 
@@ -19,9 +23,13 @@ class StatusLabelTest(unittest.TestCase):
         self.assertEqual(job_status_label({'status': '部分完成', 'message': SHORTAGE, 'warnings': '[]'}), '素材不足，完成 1/2')
         other = {'status': '部分完成', 'message': '已生成 2/3 篇独立主题文章；1 篇有处理或质量提示', 'warnings': '[]'}
         self.assertEqual(job_status_label(other), '部分完成 2/3')
+        screening = {'status': '部分完成', 'message': '已生成 2 篇草稿，程序初筛通过 0/2 篇', 'warnings': '[]'}
+        self.assertEqual(job_status_label(screening), '待复核，初筛通过 0/2')
         self.assertEqual(job_status_label({'status': '部分完成', 'message': '已生成 1 篇草稿', 'warnings': '[]'}), '部分完成')
         # Other states are unchanged.
         self.assertEqual(job_status_label({'status': '已完成', 'message': '', 'warnings': '["提示"]'}), '已完成（有提示）')
+        self.assertEqual(job_status_label({'status': '已完成', 'message': '已保存 2/2 篇草稿，需复核',
+                                          'warnings': '["待核实"]'}), '已保存，需复核')
         self.assertEqual(job_status_label({'status': '已停止', 'message': '任务已停止', 'warnings': '[]'}), '已停止')
 
 
@@ -47,6 +55,25 @@ class HistoryRowTest(unittest.TestCase):
             self.assertIn('素材不足，完成 2/3', json.dumps(detail, ensure_ascii=False))
         finally:
             f.tearDown()
+
+
+class DemoReviewStateTest(unittest.TestCase):
+    def test_demo_does_not_claim_ai_review_or_trigger_source_leak(self):
+        with tempfile.TemporaryDirectory(dir=Path('.local-data').resolve()) as folder:
+            self.assertTrue(Path(folder).resolve().is_relative_to(Path.cwd().resolve()))
+            db = Database(Path(folder) / 'workspace.sqlite')
+            demo_data(db)
+            api = Api(Backend(db, test_core.FakeVault(), Path(folder), demo=True))
+            self.assertEqual(api.wb_state()['job']['review_gap'], '二审未执行')
+            draft = db.rows('SELECT id,title,body,sources,report FROM drafts LIMIT 1')[0]
+            sources = json.loads(draft['sources'])
+            self.assertEqual(hits(draft['title'] + '\n' + draft['body'], block_list(sources)), [])
+            db.execute('UPDATE drafts SET report=? WHERE id=?',
+                       (draft['report'] + '\n' + REVIEW_FAILED_NOTE + '模拟中断', draft['id']))
+            self.assertEqual(api.wb_state()['job']['review_gap'], '二审未完成')
+            db.execute('UPDATE drafts SET report=? WHERE id=?',
+                       (draft['report'] + '\n## AI 二审\n- 已核对', draft['id']))
+            self.assertEqual(api.wb_state()['job']['review_gap'], '')
 
 
 if __name__ == '__main__':

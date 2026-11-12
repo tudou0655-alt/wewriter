@@ -35,7 +35,7 @@ class BriefTest(unittest.TestCase):
         system = transport.payloads[0]['messages'][0]['content']
         # T-029: who the reader is and what the article must get done now come from the style card.
         self.assertNotIn(EDITORIAL_BRIEF, system)
-        for need in ('企业老板和项目负责人', '帮读者把一件具体的事办成', '只能使用 facts 中的事实'):
+        for need in ('写作风格只按 user_style', '围绕原文主题', '事实只取 facts'):
             self.assertIn(need, system)
         self.assertNotIn('优先补充原文之外的新信息', system)
 
@@ -56,7 +56,8 @@ class BriefTest(unittest.TestCase):
         system = transport.payloads[0]['messages'][0]['content']
         self.assertIn('不得为了模仿风格编造', system)
         # The fact rules are part of the fixed rules that come before the style card.
-        self.assertLess(system.index('优先级：事实准确与证据支持高于用户 style'), system.index('【风格卡】'))
+        self.assertIn('优先级：事实准确与证据支持高于任何写法要求', system)
+        self.assertNotIn('【风格卡】', system)
 
     def test_research_looks_for_official_documents_and_prior_years(self):
         transport = Capture({})
@@ -287,8 +288,8 @@ class RewriteDirectionTest(unittest.TestCase):
         model.write(SOURCES, dict(CONFIG, avoid_angles=['旧稿｜小标题：a / b'], topic='换个角度'))
         system = transport.payloads[0]['messages'][0]['content']
         user = json.loads(transport.payloads[0]['messages'][1]['content'])
-        self.assertIn('必须换一个明显不同的切入角度', system)
+        self.assertIn('这次换一个选题角度', system)
         self.assertEqual(user['avoid_angles'], ['旧稿｜小标题：a / b'])
         model2, transport2 = BriefTest.model(self, {'title': '新', 'outline': ['a'], 'body': '原文。[S1] 通知。[W1]', 'review_notes': []})
         model2.write(SOURCES, CONFIG)
-        self.assertNotIn('必须换一个明显不同的切入角度', transport2.payloads[0]['messages'][0]['content'])
+        self.assertNotIn('这次换一个选题角度', transport2.payloads[0]['messages'][0]['content'])

@@ -214,7 +214,7 @@ details .inner { display: grid; gap: 16px; }
           <div class="field"><label for="words">目标篇幅（字）</label>
             <input class="input" id="words" data-k="words" inputmode="numeric" value="1500">
             <div class="chips" id="word-chips"></div>
-            <span class="hint" id="words-hint">可填 200—20000 的任意整数；这是写作目标，实际字数会有浮动</span></div>
+            <span class="hint" id="words-hint">可填 200—20000 的任意整数；目标允许上下浮动 20%，超出范围保留草稿并提示</span></div>
           <div class="field"><label for="style">写作风格</label>
             <select class="select" id="style" data-k="style">
               <option>政策申报实务</option><option>参考原文风格</option><option>通俗自然</option><option>专业简洁</option><option value="custom">自定义…</option></select>
@@ -223,6 +223,13 @@ details .inner { display: grid; gap: 16px; }
         </div>
         <div class="field"><label for="extra">补充要求（可选）</label>
           <textarea id="extra" data-k="extra" placeholder="例如：面向工程从业者，少用术语，段落简短。"></textarea></div>
+      </section>
+
+      <section class="panel" aria-labelledby="wiki-h">
+        <h2 id="wiki-h">写作知识库</h2>
+        <div class="toggle-row"><div><b>写稿时使用 Wiki</b><div class="hint">开启后按主题积累公众号摘要，并把最多 3 段相关摘录交给写作模型。每段最多 320 字。</div></div>
+          <button class="switch" role="switch" aria-label="写稿时使用 Wiki" aria-checked="false" data-sw="wiki"><span class="track"></span></button></div>
+        <button class="btn" id="manage-wiki">管理知识库</button>
       </section>
 
       <!-- Export -->
@@ -257,7 +264,7 @@ details .inner { display: grid; gap: 16px; }
           <div>
             <div class="toggle-row"><div><b>每日自动生成文章</b><div class="hint">中国时间每天从已保存素材中选文；不会自动重新采集，电脑需开机联网</div></div>
               <div style="display: flex; gap: 10px; align-items: center"><input class="input" id="sched-time" data-k="schedtime" value="09:00" style="width: 90px" aria-label="执行时间"><button class="switch" role="switch" aria-checked="false" data-sw="sched"><span class="track"></span></button></div></div>
-            <div class="toggle-row"><div><b>优先生成草稿</b><div class="hint">默认开启：先保存可修改草稿，暂不运行自动二审、查证和风格改写；篇幅或引用不足会标明待处理</div></div><button class="switch" role="switch" aria-checked="true" data-sw="draftfirst"><span class="track"></span></button></div>
+            <div class="toggle-row"><div><b>优先生成草稿</b><div class="hint">默认开启：保留独立事实核查，跳过自动二审、联网查证和风格改写；保存够篇数即停止，有疑点标待审核</div></div><button class="switch" role="switch" aria-checked="true" data-sw="draftfirst"><span class="track"></span></button></div>
             <div class="toggle-row"><div><b>生成后 AI 二审</b><div class="hint">关闭“优先生成草稿”后才执行；每篇增加模型调用</div></div><button class="switch" role="switch" aria-checked="true" data-sw="review"><span class="track"></span></button></div>
             <div class="toggle-row"><div><b>二审后自动查证存疑事实</b><div class="hint">关闭“优先生成草稿”且开启二审后才执行；可能增加搜索与模型费用</div></div><button class="switch" role="switch" aria-checked="true" data-sw="verify"><span class="track"></span></button></div>
             <div class="toggle-row"><div><b>识别图片型文章</b><div class="hint">文字不足 100 字时用 OpenAI 识图，额外计费；关闭时由下一篇补位</div></div><button class="switch" role="switch" aria-checked="false" data-sw="vision"><span class="track"></span></button></div>

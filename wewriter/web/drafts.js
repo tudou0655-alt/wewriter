@@ -155,7 +155,7 @@ function renderDraft() {
     $('sheet').innerHTML = `<input class="edit-title" id="e-title" value="${esc(d.t)}" aria-label="标题">
       <textarea class="edit-body" id="e-body" aria-label="正文">${esc(d.body)}</textarea>
       <div class="note" style="margin-top: 8px">正文里的 [S1]、[W1] 是来源编号，用来对应素材报告；导出发布稿时会自动去掉。保存修改后稿件回到“待审核”。</div>
-      <div class="actions"><button class="btn primary" id="save">保存修改</button><button class="btn" id="cancel">取消编辑</button></div>`;
+      <div class="actions"><button class="btn primary" id="save">保存修改</button><button class="btn" id="teach">保存并记住改法</button><button class="btn" id="cancel">取消编辑</button></div>`;
     const mark = () => { ui.dirty = $('e-title').value !== d.t || $('e-body').value !== d.body; };
     $('e-title').addEventListener('input', mark); $('e-body').addEventListener('input', mark);
     $('save').addEventListener('click', async () => {
@@ -166,6 +166,26 @@ function renderDraft() {
       ui.editing = false; ui.dirty = false; await reopen();
       toast(changed ? '已保存为新版本，稿件回到“待审核”' : '内容没有变化');
     });
+    $('teach').onclick=async e=>{
+      const btn=e.currentTarget, t=$('e-title').value.trim(), b=$('e-body').value.trim();
+      if(!t||!b||!ui.dirty){toast('先修改标题或正文，再记住改法');return;}
+      btn.disabled=true;
+      const r=await call('dr_save',d.id,t,b);
+      if(!r){btn.disabled=false;return;}
+      ui.editing=false;ui.dirty=false;await reopen();
+      if(!ui.open || ui.open.id!==d.id)return;
+      const box=$('inline');
+      box.innerHTML='<div class="inline"><b>记住这次改法</b><label>适用关键词（留空表示全部文章）<input class="input" id="teach-scope" maxlength="40"></label><label>下次怎么写<textarea id="teach-rule" maxlength="160"></textarea></label><div class="row"><button class="btn" id="suggest">从这次改动提炼</button><button class="btn primary" id="confirm-rule">确认记住</button><button class="btn quiet" id="dismiss-rule">取消</button></div></div>';
+      $('suggest').onclick=async ev=>{
+        const button=ev.currentTarget;
+        if(!await confirmBox('提炼写法','仅发送标题、正文各一对改前改后片段，每段最多 240 字。摘要模型调用一次，结果由你确认。','提炼'))return;
+        button.disabled=true;const hint=await call('dr_suggest_preference',d.id,r.revision);
+        if(box.isConnected && $('teach-rule') && hint){$('teach-rule').value=hint.instruction;if(!hint.instruction)toast('未识别到可复用的写法，可自行填写');}
+        button.disabled=false;
+      };
+      $('confirm-rule').onclick=async()=>{if(await call('wiki_preference',0,d.id,r.revision,$('teach-scope').value,$('teach-rule').value)){box.replaceChildren();toast('已保存到知识库的写作偏好');}};
+      $('dismiss-rule').onclick=()=>box.replaceChildren();
+    };
     $('cancel').addEventListener('click', () => leave(() => renderDraft()));
     $('e-title').focus();
     return;

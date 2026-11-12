@@ -2,7 +2,7 @@
 de-duplication, and cached per-chunk summaries with bounded retries."""
 import json
 import time
-from ..api import ApiError, Cancelled, digest, original_quote
+from ..api import ApiError, Cancelled, CONTENT_PROMPT_REVISION, digest, original_quote
 from ..logs import logger, redact
 from .common import TaskError, error_code
 
@@ -37,6 +37,14 @@ def materials(engine, ctx, selected):
             body_ready = True
             ctx.stage('摘要分析')
             parts = engine._summaries(ctx, article, content)
+            if config.get('wiki_enabled'):
+                from ..wiki import store_article
+                import sqlite3
+                try:
+                    with db.connect() as con:
+                        store_article(con, {**article, 'content': content}, parts)
+                except sqlite3.Error:
+                    ctx.warn('本次摘要未能写入知识库，继续使用当前素材成稿')
             metrics = db.rows('''SELECT m.reads,m.likes,m.observed_at,n.source,n.reads_status,n.previous_reads,
                 n.previous_observed_at FROM job_metrics m LEFT JOIN metric_notes n
                 ON n.job_id=m.job_id AND n.article_id=m.article_id WHERE m.job_id=? AND m.article_id=?''',
@@ -137,7 +145,8 @@ def summaries(engine, ctx, article, content):
         if selected and selected != model_config['model']:
             model_config = {**model_config, 'model': selected}
         key = digest(json.dumps(["summary-v2-cross-article", provider,
-                                 model_config, article.get('title'), body_hash, start, chunk],
+                                 model_config, article.get('title'), body_hash, start, chunk]
+                                + ([CONTENT_PROMPT_REVISION] if CONTENT_PROMPT_REVISION else []),
                                 ensure_ascii=False, sort_keys=True))
 
         def compute():
@@ -171,7 +180,7 @@ def summary_attempts(engine, ctx, article, chunk, part):
             engine.check()
             started = time.monotonic()
             try:
-                result = ctx.summarizer.summary(article, chunk)
+                result = ctx.summarizer.summary({**article, 'wiki_enabled': bool(ctx.config.get('wiki_enabled'))}, chunk)
                 if attempt > 1:
                     logger.info('摘要重试成功 job=%s article=%s part=%s attempt=%s',
                                 ctx.job['id'], article['id'], part, attempt)

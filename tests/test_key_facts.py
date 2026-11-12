@@ -83,6 +83,8 @@ class CoveringResearch(Research):
 class FallbackTest(VerifyFixture):
     def setUp(self):
         super().setUp()
+        # These cases use cited official originals, not DeepSeek snippets.
+        self.f.config['search_provider'] = 'openai'
         CoveringResearch.seen = []
 
     def run_with(self, notes):

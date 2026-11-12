@@ -173,10 +173,14 @@ def format_funnel(raw):
 
     lines = []
     if collection:
-        lines.append(f"结果：扫描 {collection['accounts_enabled']} 个启用公众号"
+        planned = collection['accounts_enabled']
+        skipped = collection.get('accounts_unattempted', 0)
+        scope = (f'计划扫描 {planned} 个启用公众号，预算停止后 {skipped} 个未采集'
+                 if skipped else f'扫描 {planned} 个启用公众号')
+        lines.append(f"结果：{scope}"
                      f"（成功 {collection['accounts_ok']}，失败 {collection['accounts_failed']}），"
                      f"接口共返回 {c['returned']} 篇；合格候选 {c['candidates']} 篇，进入处理队列 {c['queued']} 篇，"
-                     f"最终可用素材 {c['usable']} 篇，完成稿件 {data['drafts']} 篇。")
+                     f"最终可用素材 {c['usable']} 篇，已生成草稿 {data['drafts']} 篇。")
         if collection.get('reused'):
             lines.append('（本次重试沿用上次采集的选文，采集部分为当时的统计；素材与稿件为本次结果。）')
         degraded = [a for a in data['accounts'].values()
@@ -186,7 +190,7 @@ def format_funnel(raw):
                          '扩大时间范围只改变筛选条件，不能恢复这些公众号的历史覆盖。')
     else:
         lines.append(f"结果：本任务沿用已保存的选文，没有本次采集统计；最终可用素材 {c['usable']} 篇，"
-                     f"完成稿件 {data['drafts']} 篇。")
+                     f"已生成草稿 {data['drafts']} 篇。")
     lines.append('')
     lines.append('全局阶段：')
     if collection:
@@ -197,7 +201,7 @@ def format_funnel(raw):
         lines.append(f"- 进入处理队列：{c['queued']}")
     lines += ['  - 排除：' + r for r in reasons(c, MATERIAL_KEYS[:-1])]
     lines.append(f"- 可用素材：{c['usable']}")
-    lines.append(f"- 完成稿件：{data['drafts']}")
+    lines.append(f"- 已生成草稿：{data['drafts']}")
     quality = format_quality(data.get('quality'))
     if quality:
         lines.append('- 质量：' + quality)
@@ -260,7 +264,9 @@ def format_quality(quality):
     if not isinstance(quality, dict):
         return ''
     if 'research_degraded' in quality:   # batch parent
-        parts = [f"完成稿件 {quality.get('drafts', 0)} 篇"]
+        parts = [f"已生成草稿 {quality.get('drafts', 0)} 篇"]
+        if 'machine_ready' in quality:
+            parts.append(f"程序初筛通过 {quality['machine_ready']} 篇（仍须人工审核）")
         if quality.get('research_degraded'):
             parts.append(f"联网研究降级为仅原文写作 {quality['research_degraded']} 篇")
         if quality.get('flagged'):
@@ -279,8 +285,9 @@ def open_source(engine, transport):
     from ..weread import WeReadSource
     # EveryInfra supplies the article list and read counts when its key is
     # saved: the WeRead list is refused account-wide (-2041) for long periods.
+    budgeted = getattr(getattr(transport, 'cost_meter', None), 'collection_budget_cny', None) is not None
     provider = (EveryInfra(engine.vault.get('everyinfra'), transport)
-                if engine.vault.has('everyinfra') and engine.vault.get('everyinfra') else None)
+                if not budgeted and engine.vault.has('everyinfra') and engine.vault.get('everyinfra') else None)
     # 极致了 is tried first: its list carries read counts and it answered
     # every request in the 2026-10-25 trial where EveryInfra was mostly busy.
     primary = (Dajiala(engine.vault.get('dajiala'), transport)
@@ -312,7 +319,7 @@ def collect(engine, ctx):
         ctx.warn(message)
     if hasattr(ctx.source, 'list_since'):
         ctx.source.list_since = earliest
-    for account in accounts:
+    for index, account in enumerate(accounts):
         engine.check()
         who = 'acct:' + account['identifier']
         funnel.account(who, account['name'], account['identifier'])
@@ -327,6 +334,10 @@ def collect(engine, ctx):
             if exc.fatal:
                 raise
             collect_warn(f"{account['name']}：{exc}")
+            if exc.kind == 'budget':
+                collection['accounts_unattempted'] = len(accounts) - index - 1
+                funnel.save()
+                break
             continue
         funnel.add('returned', who, len(items))
         funnel.account(who)['coverage'] = engine._coverage(ctx.source, items, config["per_account_limit"])

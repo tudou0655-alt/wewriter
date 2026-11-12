@@ -1,10 +1,11 @@
-// Shared by the five pages: the Python bridge, navigation, toasts and the leave guard.
-const PAGES = [['workbench', '工作台'], ['accounts', '公众号'], ['articles', '文章库'], ['drafts', '稿件库'], ['settings', '设置']];
+// Shared by the desktop pages: the Python bridge, navigation, toasts and the leave guard.
+const PAGES = [['workbench', '工作台'], ['accounts', '公众号'], ['articles', '文章库'], ['drafts', '稿件库'], ['wiki', '知识库'], ['settings', '设置']];
 const NAV_PATHS = {
   workbench: '<path d="m3 11 9-8 9 8v10H3z"/><path d="M9 21v-7h6v7"/>',
   accounts: '<circle cx="12" cy="7" r="3"/><path d="M5 21v-3a7 7 0 0 1 14 0v3"/>',
   articles: '<path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h6"/>',
   drafts: '<path d="M6 3h12v18H6zM9 7h6M9 11h6M9 15h4"/>',
+  wiki: '<circle cx="5" cy="12" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="18" cy="19" r="2"/><path d="m7 11 9-5M7 13l9 5"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2"/>'
 };
 const $ = id => document.getElementById(id);

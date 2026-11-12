@@ -29,8 +29,9 @@ function renderPipe(job) {
   $('pipe').innerHTML = STEPS.map((name, i) => {
     let cls = i < job.step ? 'done' : (i === job.step && job.running ? 'now' : '');
     if (i === 4 && job.step >= 4 && !job.running) cls = person ? 'person' : 'done';
-    const mark = cls === 'done' ? '✓' : String(i + 1);
-    return `<li class="${cls}"><span class="bar"></span><span class="name ${cls === 'now' ? 'shine' : ''}"><i>${mark}</i>${name}${cls === 'now' ? '中' : ''}</span></li>`;
+    if (i === 3 && !job.running && job.step >= 4 && job.review_gap) cls = 'skip';
+    const mark = cls === 'done' ? '✓' : cls === 'skip' ? '—' : String(i + 1);
+    return `<li class="${cls}"><span class="bar"></span><span class="name ${cls === 'now' ? 'shine' : ''}"><i>${mark}</i>${cls === 'skip' ? job.review_gap : name}${cls === 'now' ? '中' : ''}</span></li>`;
   }).join('');
 }
 
@@ -53,7 +54,7 @@ function render(s) {
   ui.last = s;
   $('scope').innerHTML = ui.action === 'collect'
     ? (s.accounts ? `<b>${s.accounts}</b> 个公众号已启用` : '还没有启用的公众号，请先到“公众号”页添加')
-    : `素材库中有 <b>${s.available || 0}</b> 篇可选、尚未写过的文章（有阅读量的优先）`;
+    : `<b>${s.accounts || 0}</b> 个公众号已启用 · 本次会重新采集热度，按已采集范围排序`;
   $('start').textContent = s.busy ? '加入队列' : ui.action === 'collect' ? '开始采集' : '开始写作';
   $('queue').hidden = !s.queue;
   $('queue').textContent = s.restored && !s.busy ? `排队 ${s.queue} 个（含上次退出前未开始的任务）` : `排队 ${s.queue} 个，前一个完成后自动开始`;
@@ -149,7 +150,7 @@ $('start').addEventListener('click', async () => {
   $('start').disabled = false;
   if (r) {
     $('new-dialog').close();
-    toast(r.queued ? `已加入队列（排队 ${r.count} 个），设置已冻结` : ui.action === 'collect' ? '已开始采集素材' : '已开始使用素材库写作');
+    toast(r.queued ? `已加入队列（排队 ${r.count} 个），设置已冻结` : ui.action === 'collect' ? '已开始采集素材' : '已开始实时采集并写作');
   }
   refresh();
 });
@@ -160,7 +161,7 @@ function openAction(action) {
   $('count-field').hidden = action !== 'write';
   $('action-hint').textContent = action === 'collect'
     ? '只更新本地素材库，不自动生成文章；需要写作时再点“生成文章”。采集服务可能收费。'
-    : '使用素材库中未写过的文章，不重新读取公众号列表。未保存的正文会按需读取；联网研究和模型写作仍可能收费。';
+    : '本次重新采集公众号文章与阅读量，按已覆盖范围的热度排序后逐篇写作；数据服务采集预算最多 ¥10。候选少于目标仍保留可用稿。模型调用可能收费。';
   if (ui.last) render(ui.last);
   $('new-dialog').showModal();
 }
@@ -216,16 +217,16 @@ async function openDetail(jobId) {
   $('dw-h').textContent = d.title; $('dw-sub').textContent = d.sub;
   let html = d.alert ? `<h4>需要你注意</h4><div class="alert">${esc(d.alert)}</div>` : '';
   if (d.action === 'collect') {
-    html += `<h4>这次采集了什么</h4><div class="note">从 ${d.accounts_n} 个启用公众号读取列表，找到 ${d.candidates} 篇可供后续写作的文章；只保存了文章信息和阅读量，没有自动写稿。</div>`
-      + (d.picked.length ? `<ul class="picked">${d.picked.map(p => `<li><span>${esc(p.title)}</span><span>阅读 ${fmtNum(p.reads)}</span></li>`).join('')}</ul>` : '');
+    html += `<h4>这次采集了什么</h4><div class="note">计划采集 ${d.accounts_enabled} 个公众号，实际尝试 ${d.accounts_n} 个${d.accounts_unattempted ? `；预算停止后 ${d.accounts_unattempted} 个未采集` : ''}，找到 ${d.candidates} 篇可供后续写作的文章；只保存了文章信息和阅读量，没有自动写稿。</div>`
+      + (d.picked.length ? `<ul class="picked">${d.picked.map(p => `<li><span>${esc(p.title)}</span><span>阅读 ${fmtNum(p.reads)} · ${esc(p.observed_at)}</span></li>`).join('')}</ul>` : '');
   } else if (d.has_funnel) {
-    const picked = d.picked.map(p => `<li><span>${esc(p.title)}</span><span>阅读 ${fmtNum(p.reads)}</span></li>`).join('');
+    const picked = d.picked.map(p => `<li><span>${esc(p.title)}</span><span>阅读 ${fmtNum(p.reads)} · ${esc(p.observed_at)}</span></li>`).join('');
     const failed = d.accounts.filter(a => a.failed).length;
     html += `<h4>这次是怎么选出文章的</h4><ol class="steps">
-      <li><span class="no">1</span><div><p>从 ${d.accounts_n} 个公众号读到<b>${d.returned}</b>篇文章</p><small>${failed ? `${failed} 个公众号读取失败，见下表` : '所有公众号都读取成功'}</small></div></li>
+      <li><span class="no">1</span><div><p>从 ${d.accounts_n} 个已尝试的公众号读到<b>${d.returned}</b>篇文章</p><small>${failed ? `${failed} 个公众号读取失败，见下表` : '已尝试的公众号都读取成功'}${d.accounts_unattempted ? `；预算停止后 ${d.accounts_unattempted} 个未采集` : ''}</small></div></li>
       <li><span class="no">2</span><div><p>其中<b>${d.in_window}</b>篇在时间范围内</p><small>其余 ${d.outside} 篇发布时间更早或条目无效，不参与选文</small></div></li>
       <li><span class="no">3</span><div><p>筛选后<b>${d.candidates}</b>篇进入候选处理队列（处理前）</p><small>${d.reasons.length ? '筛选及后续处理记录：' + esc(d.reasons.join('；')) : '暂无排除或处理失败记录'}；入队不代表已完成正文、摘要或写作</small></div></li>
-      <li><span class="no">4</span><div><p>按阅读量从高到低选文写作</p>${picked ? `<ul class="picked">${picked}</ul>` : '<small>还没有选出文章</small>'}</div></li>
+      <li><span class="no">4</span><div><p>按本次已采集范围内的阅读量优先处理候选</p>${picked ? `<ul class="picked">${picked}</ul>` : '<small>还没有选出文章</small>'}</div></li>
     </ol>
     <h4>各公众号读取情况</h4><div class="scroll-x"><table class="accts"><thead><tr><th>公众号</th><th>读到</th><th>最近一篇</th></tr></thead><tbody>
     ${d.accounts.map(a => a.failed ? `<tr><td>${esc(a.name)}</td><td class="bad" colspan="2">读取失败：${esc(a.error)}</td></tr>`

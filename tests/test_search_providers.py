@@ -9,7 +9,8 @@ from wewriter.costs import CostMeter, _deepseek_band, summary
 from wewriter.db import Database
 from wewriter.engine import _Run
 from wewriter.pipeline.collect import Funnel
-from wewriter.research import DeepSeekResearch
+from wewriter.research import DeepSeekResearch, action_dates, source_excerpt
+from wewriter.style import fact_sheet
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -49,7 +50,9 @@ class ProviderTest(unittest.TestCase):
         self.assertIn('[W1]', result['notes'])
         self.assertIn('搜索摘要，使用前核对原件', result['notes'])
         self.assertEqual(fake.calls[0][0], 'https://api.deepseek.com/v1/tools/search')
-        self.assertEqual(fake.calls[0][2]['count'], 8)
+        self.assertEqual(fake.calls[0][2]['count'], 5)
+        self.assertTrue(fake.calls[0][2]['need_content'])
+        self.assertIn('site:gov.cn', fake.calls[0][2]['query'])
 
     def test_empty_search_cannot_use_model_memory(self):
         with self.assertRaises(ApiError):
@@ -64,9 +67,49 @@ class ProviderTest(unittest.TestCase):
             {'identifiers': ['FICT-123'], 'claim': '虚构说法'}]})
         self.assertEqual(len(fake.calls), 2)
         self.assertIn('FICT-123', fake.calls[1][2]['query'])
+        self.assertIn('site:gov.cn', fake.calls[1][2]['query'])
+        self.assertLessEqual(len(fake.calls[1][2]['query']), 128)
+        self.assertEqual(client.search({'title': '虚构申报项目'})['sources'][0]['excerpt'],
+                         '正文中的项目编号 FICT-123')
         finding = client.verify('虚构项目', [{'identifiers': ['FICT-123']}])
         self.assertTrue(fake.calls[-1][2]['need_content'])
         self.assertIn('网页正文节选', finding['notes'])
+
+    def test_source_excerpt_keeps_late_application_deadline(self):
+        content = '# 虚构申报通知\n\n' + ('一般介绍。' * 300) + '\n\n申报材料须于2026年8月15日前报送。'
+        selected = source_excerpt(content, '虚构申报通知 site:gov.cn')
+        self.assertIn('2026年8月15日前报送', selected)
+        self.assertLessEqual(len(selected), 3200)
+
+    def test_deadline_reaches_research_notes_for_article_planning(self):
+        content = '# 虚构申报通知\n\n' + ('一般介绍。' * 300) + '\n\n申报单位于2026年8月15日前提交材料。'
+        fake = FakeTransport({'results': [{'url': 'https://example.gov.cn/fiction',
+            'title': '虚构通知', 'summary': '虚构申报条件', 'content': content}]})
+        found = DeepSeekResearch('FAKE_KEY', defaults(), fake).search({'title': '虚构申报通知'})
+        self.assertIn('2026年8月15日前提交材料', found['notes'])
+        self.assertTrue(any('2026年8月15日' in fact['fact'] and fact['sources'] == ['W1']
+                            for fact in fact_sheet([{'source_id': 'S1', 'analysis': [],
+                                                     'web_research': found['notes']}, *found['sources']])))
+
+    def test_file_access_window_is_preserved_before_bid_deadline(self):
+        content = ('# 虚构采购公告\n\n潜在供应商于2026年11月10日前提交投标文件。\n\n'
+                   '三、获取招标文件\n时间：2026年10月20日至2026年10月28日。\n\n'
+                   '四、提交投标文件\n截止时间：2026年11月10日。')
+        dates = action_dates(content)
+        self.assertTrue(any('获取招标文件' in line and '2026年10月28日' in line for line in dates))
+        fake = FakeTransport({'results': [{'url': 'https://example.gov.cn/fiction',
+            'title': '虚构采购公告', 'content': content}]})
+        found = DeepSeekResearch('FAKE_KEY', defaults(), fake).search({'title': '虚构采购项目'})
+        self.assertIn('2026年10月28日', found['notes'])
+        self.assertIn('2026年11月10日', found['notes'])
+
+    def test_original_page_excerpt_reaches_fact_sheet(self):
+        fake = FakeTransport({'results': [{'url': 'https://example.gov.cn/fiction',
+            'title': '虚构政策原件', 'content': '甲类项目按规定可申请示例支持。'}]})
+        found = DeepSeekResearch('FAKE_KEY', defaults(), fake).search({'title': '虚构项目'})
+        source = {'source_id': 'S1', 'analysis': [], 'web_research': found['notes']}
+        facts = fact_sheet([source, *found['sources']])
+        self.assertTrue(any('甲类项目' in fact['quote'] for fact in facts))
 
     def test_bailian_text_uses_responses_protocol(self):
         response = {'status': 'completed', 'output': [{'type': 'message', 'content': [

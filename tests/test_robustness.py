@@ -42,7 +42,8 @@ class DraftRepairTest(unittest.TestCase):
         good = chat({'title': '标题', 'body': '正文[S1]', 'outline': [], 'review_notes': []})
         transport = SequenceTransport(bad, good)
         model = Model('deepseek', defaults()['providers']['deepseek'], 'x', transport)
-        self.assertEqual(model.write([{'source_id': 'S1'}], defaults())['body'], '正文[S1]')
+        config = {**defaults(), 'draft_first_mode': False}
+        self.assertEqual(model.write([{'source_id': 'S1'}], config)['body'], '正文[S1]')
         self.assertEqual(len(transport.payloads), 2)
         feedback = json.loads(transport.payloads[1]['messages'][1]['content'])['validation_feedback']
         self.assertIn('来源标记', feedback)
@@ -51,8 +52,9 @@ class DraftRepairTest(unittest.TestCase):
         bad = chat({'title': '标题', 'body': '正文[S999]', 'outline': [], 'review_notes': []})
         transport = SequenceTransport(bad, bad, bad)
         model = Model('deepseek', defaults()['providers']['deepseek'], 'x', transport)
+        config = {**defaults(), 'draft_first_mode': False}
         with self.assertRaises(ApiError):
-            model.write([{'source_id': 'S1'}], defaults())
+            model.write([{'source_id': 'S1'}], config)
         self.assertEqual(len(transport.payloads), 2)
 
     def test_degraded_draft_missing_review_notes_is_validation_error_not_crash(self):
